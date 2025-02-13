@@ -1,0 +1,17 @@
+name = "store"
+version = "0.1.0"
+description = "A store actor"
+
+component_path = "/Users/colinrozzi/work/actors/store/target/wasm32-unknown-unknown/release/store.wasm"
+
+[interface]
+implements = "ntwk:actor/actor"
+requires = []
+
+[[handlers]]
+type = "runtime"
+config = {}
+
+[[handlers]]
+type = "filesystem"
+config = { path = "/Users/colinrozzi/work/actors/store/data"}

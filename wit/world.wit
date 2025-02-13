@@ -1,0 +1,9 @@
+package ntwk:theater;
+
+world store-actor {
+    import runtime;
+    import filesystem;
+    import message-server-host;
+    export actor;
+    export message-server-client;
+}
