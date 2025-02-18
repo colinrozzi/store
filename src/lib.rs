@@ -5,7 +5,6 @@ use bindings::ntwk::theater::filesystem::{list_files, read_file, write_file};
 use bindings::ntwk::theater::runtime::log;
 use bindings::ntwk::theater::types::Json;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use sha1::{Digest, Sha1};
 use std::collections::HashMap;
 
@@ -71,6 +70,36 @@ enum Action {
     All(()),
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+struct PutResponse {
+    key: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct GetResponse {
+    key: String,
+    value: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct AllResponse {
+    data: Vec<GetResponse>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+enum ResponseData {
+    Put(PutResponse),
+    Get(GetResponse),
+    All(AllResponse),
+    Error(String),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Response {
+    status: String,
+    data: ResponseData,
+}
+
 impl MessageGuest for Component {
     fn handle_send(msg: Json, state: Json) -> Json {
         log(format!(
@@ -88,37 +117,54 @@ impl MessageGuest for Component {
             "Request: {:?}",
             String::from_utf8(msg.clone()).unwrap()
         ));
-        log(&format!(
-            "State: {:?}",
-            String::from_utf8(state.clone()).unwrap()
-        ));
         let mut state: State = serde_json::from_slice(&state).unwrap();
-        log("State deserialized");
         let request: Request = serde_json::from_slice(&msg).unwrap();
-        log(&format!("Request: {:?}", request));
-        let mut response = json!({"status": "error", "message": "Unknown request type"});
+
+        #[allow(unused_assignments)]
+        let mut response = Response {
+            status: "error".to_string(),
+            data: ResponseData::Error("Unknown request type".to_string()),
+        };
 
         match request.data {
             Action::Get(key) => {
                 if let Some(value) = state.get(&key) {
-                    response = json!({"status": "ok", "value": value});
+                    response = Response {
+                        status: "ok".to_string(),
+                        data: ResponseData::Get(GetResponse {
+                            key: key.clone(),
+                            value: value.clone(),
+                        }),
+                    }
                 } else {
-                    response = json!({"status": "error", "message": "Key not found"});
+                    response = Response {
+                        status: "error".to_string(),
+                        data: ResponseData::Error("Key not found".to_string()),
+                    }
                 }
             }
             Action::Put(value) => {
                 let key = state.put(value);
-                response = json!({"status": "ok", "key": key});
+                response = Response {
+                    status: "ok".to_string(),
+                    data: ResponseData::Put(PutResponse { key }),
+                }
             }
             Action::All(()) => {
                 let keys = list_files(".").unwrap();
                 let mut data = Vec::new();
                 for key in keys {
                     if let Some(value) = state.get(&key) {
-                        data.push(json!({"key": key, "value": value}));
+                        data.push(GetResponse {
+                            key: key.clone(),
+                            value: value.clone(),
+                        });
                     }
                 }
-                response = json!({"status": "ok", "data": data});
+                response = Response {
+                    status: "ok".to_string(),
+                    data: ResponseData::All(AllResponse { data }),
+                }
             }
         }
 
