@@ -945,7 +945,7 @@ mod _rt {
 /// ```
 #[allow(unused_macros)]
 #[doc(hidden)]
-macro_rules! __export_store_actor_impl {
+macro_rules! __export_store_impl {
     ($ty:ident) => {
         self::export!($ty with_types_in self);
     };
@@ -960,12 +960,12 @@ macro_rules! __export_store_actor_impl {
     };
 }
 #[doc(inline)]
-pub(crate) use __export_store_actor_impl as export;
+pub(crate) use __export_store_impl as export;
 #[cfg(target_arch = "wasm32")]
-#[link_section = "component-type:wit-bindgen:0.36.0:ntwk:theater:store-actor:encoded world"]
+#[link_section = "component-type:wit-bindgen:0.36.0:ntwk:theater:store:encoded world"]
 #[doc(hidden)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 1124] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xe2\x07\x01A\x02\x01\
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 1112] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xdc\x07\x01A\x02\x01\
 A\x10\x01B\x0e\x01p}\x04\0\x04json\x03\0\0\x01p}\x04\0\x05state\x03\0\x02\x01s\x04\
 \0\x08actor-id\x03\0\x04\x01kw\x01r\x03\x0aevent-types\x06parent\x06\x04data\x01\
 \x04\0\x05event\x03\0\x07\x01r\x02\x04hashw\x05event\x08\x04\0\x0ameta-event\x03\
@@ -990,9 +990,9 @@ eater/message-server-host\x05\x06\x02\x03\0\0\x05event\x01B\x07\x02\x03\x02\x01\
 \x01B\x09\x02\x03\x02\x01\x01\x04\0\x04json\x03\0\0\x02\x03\x02\x01\x07\x04\0\x05\
 event\x03\0\x02\x01@\x02\x03msg\x01\x05state\x01\0\x01\x04\0\x0bhandle-send\x01\x04\
 \x01o\x02\x01\x01\x01@\x02\x03msg\x01\x05state\x01\0\x05\x04\0\x0ehandle-request\
-\x01\x06\x04\0\"ntwk:theater/message-server-client\x05\x09\x04\0\x18ntwk:theater\
-/store-actor\x04\0\x0b\x11\x01\0\x0bstore-actor\x03\0\0\0G\x09producers\x01\x0cp\
-rocessed-by\x02\x0dwit-component\x070.220.1\x10wit-bindgen-rust\x060.36.0";
+\x01\x06\x04\0\"ntwk:theater/message-server-client\x05\x09\x04\0\x12ntwk:theater\
+/store\x04\0\x0b\x0b\x01\0\x05store\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\
+\x0dwit-component\x070.220.1\x10wit-bindgen-rust\x060.36.0";
 #[inline(never)]
 #[doc(hidden)]
 pub fn __link_custom_section_describing_imports() {

@@ -20,4 +20,4 @@ strip = true
 lto = true
 
 [package.metadata.component]
-package = "ntwk:key-value-actor"
+package = "ntwk:store"
