@@ -49,11 +49,11 @@ impl State {
 struct Component;
 
 impl ActorGuest for Component {
-    fn init(_data: Option<Vec<u8>>) -> Vec<u8> {
+    fn init(_data: Option<Vec<u8>>, _params: (String,)) -> Result<(Option<Vec<u8>>,), String> {
         log("Initializing key-value store");
         let initial_state = State::new();
         //setup_data();
-        serde_json::to_vec(&initial_state).unwrap()
+        Ok((Some(serde_json::to_vec(&initial_state).unwrap()),))
     }
 }
 
@@ -101,23 +101,31 @@ struct Response {
 }
 
 impl MessageGuest for Component {
-    fn handle_send(msg: Json, state: Json) -> Json {
+    fn handle_send(
+        state: Option<Vec<u8>>,
+        params: (Vec<u8>,),
+    ) -> Result<(Option<Vec<u8>>,), String> {
+        let msg = params.0;
         log(format!(
             "Handling send: {:?}",
             String::from_utf8(msg.clone()).unwrap()
         )
         .as_str());
         log("Send not implemented");
-        state
+        Ok((state,))
     }
 
-    fn handle_request(msg: Json, state: Json) -> (Json, Json) {
+    fn handle_request(
+        state: Option<Vec<u8>>,
+        params: (Vec<u8>,),
+    ) -> Result<(Option<Vec<u8>>, (Vec<u8>,)), String> {
         log("Handling request");
+        let msg = params.0;
         log(&format!(
             "Request: {:?}",
             String::from_utf8(msg.clone()).unwrap()
         ));
-        let mut state: State = serde_json::from_slice(&state).unwrap();
+        let mut state: State = serde_json::from_slice(&state.unwrap()).unwrap();
         let request: Request = serde_json::from_slice(&msg).unwrap();
 
         #[allow(unused_assignments)]
@@ -168,10 +176,7 @@ impl MessageGuest for Component {
             }
         }
 
-        (
-            serde_json::to_vec(&response).unwrap(),
-            serde_json::to_vec(&state).unwrap(),
-        )
+        Ok((Some(serde_json::to_vec(&response).unwrap()), (msg,)))
     }
 }
 

@@ -14,6 +14,7 @@ pub mod ntwk {
             use super::super::super::_rt;
             /// Generic message type as bytes that can be serialized/deserialized
             pub type Json = _rt::Vec<u8>;
+            pub type State = Option<_rt::Vec<u8>>;
             pub type ActorId = _rt::String;
             #[derive(Clone)]
             pub struct Event {
@@ -69,7 +70,6 @@ pub mod ntwk {
             static __FORCE_SECTION_REF: fn() = super::super::super::__link_custom_section_describing_imports;
             use super::super::super::_rt;
             pub type Chain = super::super::super::ntwk::theater::types::Chain;
-            pub type ActorId = super::super::super::ntwk::theater::types::ActorId;
             #[allow(unused_unsafe, clippy::all)]
             pub fn log(msg: &str) {
                 unsafe {
@@ -87,34 +87,6 @@ pub mod ntwk {
                         unreachable!()
                     }
                     wit_import(ptr0.cast_mut(), len0);
-                }
-            }
-            #[allow(unused_unsafe, clippy::all)]
-            pub fn spawn(manifest_path: &str) -> ActorId {
-                unsafe {
-                    #[repr(align(4))]
-                    struct RetArea([::core::mem::MaybeUninit<u8>; 8]);
-                    let mut ret_area = RetArea([::core::mem::MaybeUninit::uninit(); 8]);
-                    let vec0 = manifest_path;
-                    let ptr0 = vec0.as_ptr().cast::<u8>();
-                    let len0 = vec0.len();
-                    let ptr1 = ret_area.0.as_mut_ptr().cast::<u8>();
-                    #[cfg(target_arch = "wasm32")]
-                    #[link(wasm_import_module = "ntwk:theater/runtime")]
-                    extern "C" {
-                        #[link_name = "spawn"]
-                        fn wit_import(_: *mut u8, _: usize, _: *mut u8);
-                    }
-                    #[cfg(not(target_arch = "wasm32"))]
-                    fn wit_import(_: *mut u8, _: usize, _: *mut u8) {
-                        unreachable!()
-                    }
-                    wit_import(ptr0.cast_mut(), len0, ptr1);
-                    let l2 = *ptr1.add(0).cast::<*mut u8>();
-                    let l3 = *ptr1.add(4).cast::<usize>();
-                    let len4 = l3;
-                    let bytes4 = _rt::Vec::from_raw_parts(l2.cast(), len4, len4);
-                    _rt::string_lift(bytes4)
                 }
             }
             #[allow(unused_unsafe, clippy::all)]
@@ -697,16 +669,20 @@ pub mod exports {
                 #[doc(hidden)]
                 static __FORCE_SECTION_REF: fn() = super::super::super::super::__link_custom_section_describing_imports;
                 use super::super::super::super::_rt;
-                pub type Json = super::super::super::super::ntwk::theater::types::Json;
+                pub type State = super::super::super::super::ntwk::theater::types::State;
                 #[doc(hidden)]
                 #[allow(non_snake_case)]
                 pub unsafe fn _export_init_cabi<T: Guest>(
                     arg0: i32,
                     arg1: *mut u8,
                     arg2: usize,
+                    arg3: *mut u8,
+                    arg4: usize,
                 ) -> *mut u8 {
                     #[cfg(target_arch = "wasm32")] _rt::run_ctors_once();
-                    let result1 = T::init(
+                    let len1 = arg4;
+                    let bytes1 = _rt::Vec::from_raw_parts(arg3.cast(), len1, len1);
+                    let result2 = T::init(
                         match arg0 {
                             0 => None,
                             1 => {
@@ -718,35 +694,79 @@ pub mod exports {
                             }
                             _ => _rt::invalid_enum_discriminant(),
                         },
+                        (_rt::string_lift(bytes1),),
                     );
-                    let ptr2 = _RET_AREA.0.as_mut_ptr().cast::<u8>();
-                    let vec3 = (result1).into_boxed_slice();
-                    let ptr3 = vec3.as_ptr().cast::<u8>();
-                    let len3 = vec3.len();
-                    ::core::mem::forget(vec3);
-                    *ptr2.add(4).cast::<usize>() = len3;
-                    *ptr2.add(0).cast::<*mut u8>() = ptr3.cast_mut();
-                    ptr2
+                    let ptr3 = _RET_AREA.0.as_mut_ptr().cast::<u8>();
+                    match result2 {
+                        Ok(e) => {
+                            *ptr3.add(0).cast::<u8>() = (0i32) as u8;
+                            let (t4_0,) = e;
+                            match t4_0 {
+                                Some(e) => {
+                                    *ptr3.add(4).cast::<u8>() = (1i32) as u8;
+                                    let vec5 = (e).into_boxed_slice();
+                                    let ptr5 = vec5.as_ptr().cast::<u8>();
+                                    let len5 = vec5.len();
+                                    ::core::mem::forget(vec5);
+                                    *ptr3.add(12).cast::<usize>() = len5;
+                                    *ptr3.add(8).cast::<*mut u8>() = ptr5.cast_mut();
+                                }
+                                None => {
+                                    *ptr3.add(4).cast::<u8>() = (0i32) as u8;
+                                }
+                            };
+                        }
+                        Err(e) => {
+                            *ptr3.add(0).cast::<u8>() = (1i32) as u8;
+                            let vec6 = (e.into_bytes()).into_boxed_slice();
+                            let ptr6 = vec6.as_ptr().cast::<u8>();
+                            let len6 = vec6.len();
+                            ::core::mem::forget(vec6);
+                            *ptr3.add(8).cast::<usize>() = len6;
+                            *ptr3.add(4).cast::<*mut u8>() = ptr6.cast_mut();
+                        }
+                    };
+                    ptr3
                 }
                 #[doc(hidden)]
                 #[allow(non_snake_case)]
                 pub unsafe fn __post_return_init<T: Guest>(arg0: *mut u8) {
-                    let l0 = *arg0.add(0).cast::<*mut u8>();
-                    let l1 = *arg0.add(4).cast::<usize>();
-                    let base2 = l0;
-                    let len2 = l1;
-                    _rt::cabi_dealloc(base2, len2 * 1, 1);
+                    let l0 = i32::from(*arg0.add(0).cast::<u8>());
+                    match l0 {
+                        0 => {
+                            let l1 = i32::from(*arg0.add(4).cast::<u8>());
+                            match l1 {
+                                0 => {}
+                                _ => {
+                                    let l2 = *arg0.add(8).cast::<*mut u8>();
+                                    let l3 = *arg0.add(12).cast::<usize>();
+                                    let base4 = l2;
+                                    let len4 = l3;
+                                    _rt::cabi_dealloc(base4, len4 * 1, 1);
+                                }
+                            }
+                        }
+                        _ => {
+                            let l5 = *arg0.add(4).cast::<*mut u8>();
+                            let l6 = *arg0.add(8).cast::<usize>();
+                            _rt::cabi_dealloc(l5, l6, 1);
+                        }
+                    }
                 }
                 pub trait Guest {
-                    fn init(data: Option<Json>) -> Json;
+                    fn init(
+                        state: State,
+                        params: (_rt::String,),
+                    ) -> Result<(State,), _rt::String>;
                 }
                 #[doc(hidden)]
                 macro_rules! __export_ntwk_theater_actor_cabi {
                     ($ty:ident with_types_in $($path_to_types:tt)*) => {
                         const _ : () = { #[export_name = "ntwk:theater/actor#init"]
                         unsafe extern "C" fn export_init(arg0 : i32, arg1 : * mut u8,
-                        arg2 : usize,) -> * mut u8 { $($path_to_types)*::
-                        _export_init_cabi::<$ty > (arg0, arg1, arg2) } #[export_name =
+                        arg2 : usize, arg3 : * mut u8, arg4 : usize,) -> * mut u8 {
+                        $($path_to_types)*:: _export_init_cabi::<$ty > (arg0, arg1, arg2,
+                        arg3, arg4) } #[export_name =
                         "cabi_post_ntwk:theater/actor#init"] unsafe extern "C" fn
                         _post_return_init(arg0 : * mut u8,) { $($path_to_types)*::
                         __post_return_init::<$ty > (arg0) } };
@@ -755,9 +775,9 @@ pub mod exports {
                 #[doc(hidden)]
                 pub(crate) use __export_ntwk_theater_actor_cabi;
                 #[repr(align(4))]
-                struct _RetArea([::core::mem::MaybeUninit<u8>; 8]);
+                struct _RetArea([::core::mem::MaybeUninit<u8>; 16]);
                 static mut _RET_AREA: _RetArea = _RetArea(
-                    [::core::mem::MaybeUninit::uninit(); 8],
+                    [::core::mem::MaybeUninit::uninit(); 16],
                 );
             }
             #[allow(dead_code, clippy::all)]
@@ -770,103 +790,207 @@ pub mod exports {
                 #[doc(hidden)]
                 #[allow(non_snake_case)]
                 pub unsafe fn _export_handle_send_cabi<T: Guest>(
-                    arg0: *mut u8,
-                    arg1: usize,
-                    arg2: *mut u8,
-                    arg3: usize,
+                    arg0: i32,
+                    arg1: *mut u8,
+                    arg2: usize,
+                    arg3: *mut u8,
+                    arg4: usize,
                 ) -> *mut u8 {
                     #[cfg(target_arch = "wasm32")] _rt::run_ctors_once();
-                    let len0 = arg1;
-                    let len1 = arg3;
+                    let len1 = arg4;
                     let result2 = T::handle_send(
-                        _rt::Vec::from_raw_parts(arg0.cast(), len0, len0),
-                        _rt::Vec::from_raw_parts(arg2.cast(), len1, len1),
+                        match arg0 {
+                            0 => None,
+                            1 => {
+                                let e = {
+                                    let len0 = arg2;
+                                    _rt::Vec::from_raw_parts(arg1.cast(), len0, len0)
+                                };
+                                Some(e)
+                            }
+                            _ => _rt::invalid_enum_discriminant(),
+                        },
+                        (_rt::Vec::from_raw_parts(arg3.cast(), len1, len1),),
                     );
                     let ptr3 = _RET_AREA.0.as_mut_ptr().cast::<u8>();
-                    let vec4 = (result2).into_boxed_slice();
-                    let ptr4 = vec4.as_ptr().cast::<u8>();
-                    let len4 = vec4.len();
-                    ::core::mem::forget(vec4);
-                    *ptr3.add(4).cast::<usize>() = len4;
-                    *ptr3.add(0).cast::<*mut u8>() = ptr4.cast_mut();
+                    match result2 {
+                        Ok(e) => {
+                            *ptr3.add(0).cast::<u8>() = (0i32) as u8;
+                            let (t4_0,) = e;
+                            match t4_0 {
+                                Some(e) => {
+                                    *ptr3.add(4).cast::<u8>() = (1i32) as u8;
+                                    let vec5 = (e).into_boxed_slice();
+                                    let ptr5 = vec5.as_ptr().cast::<u8>();
+                                    let len5 = vec5.len();
+                                    ::core::mem::forget(vec5);
+                                    *ptr3.add(12).cast::<usize>() = len5;
+                                    *ptr3.add(8).cast::<*mut u8>() = ptr5.cast_mut();
+                                }
+                                None => {
+                                    *ptr3.add(4).cast::<u8>() = (0i32) as u8;
+                                }
+                            };
+                        }
+                        Err(e) => {
+                            *ptr3.add(0).cast::<u8>() = (1i32) as u8;
+                            let vec6 = (e.into_bytes()).into_boxed_slice();
+                            let ptr6 = vec6.as_ptr().cast::<u8>();
+                            let len6 = vec6.len();
+                            ::core::mem::forget(vec6);
+                            *ptr3.add(8).cast::<usize>() = len6;
+                            *ptr3.add(4).cast::<*mut u8>() = ptr6.cast_mut();
+                        }
+                    };
                     ptr3
                 }
                 #[doc(hidden)]
                 #[allow(non_snake_case)]
                 pub unsafe fn __post_return_handle_send<T: Guest>(arg0: *mut u8) {
-                    let l0 = *arg0.add(0).cast::<*mut u8>();
-                    let l1 = *arg0.add(4).cast::<usize>();
-                    let base2 = l0;
-                    let len2 = l1;
-                    _rt::cabi_dealloc(base2, len2 * 1, 1);
+                    let l0 = i32::from(*arg0.add(0).cast::<u8>());
+                    match l0 {
+                        0 => {
+                            let l1 = i32::from(*arg0.add(4).cast::<u8>());
+                            match l1 {
+                                0 => {}
+                                _ => {
+                                    let l2 = *arg0.add(8).cast::<*mut u8>();
+                                    let l3 = *arg0.add(12).cast::<usize>();
+                                    let base4 = l2;
+                                    let len4 = l3;
+                                    _rt::cabi_dealloc(base4, len4 * 1, 1);
+                                }
+                            }
+                        }
+                        _ => {
+                            let l5 = *arg0.add(4).cast::<*mut u8>();
+                            let l6 = *arg0.add(8).cast::<usize>();
+                            _rt::cabi_dealloc(l5, l6, 1);
+                        }
+                    }
                 }
                 #[doc(hidden)]
                 #[allow(non_snake_case)]
                 pub unsafe fn _export_handle_request_cabi<T: Guest>(
-                    arg0: *mut u8,
-                    arg1: usize,
-                    arg2: *mut u8,
-                    arg3: usize,
+                    arg0: i32,
+                    arg1: *mut u8,
+                    arg2: usize,
+                    arg3: *mut u8,
+                    arg4: usize,
                 ) -> *mut u8 {
                     #[cfg(target_arch = "wasm32")] _rt::run_ctors_once();
-                    let len0 = arg1;
-                    let len1 = arg3;
+                    let len1 = arg4;
                     let result2 = T::handle_request(
-                        _rt::Vec::from_raw_parts(arg0.cast(), len0, len0),
-                        _rt::Vec::from_raw_parts(arg2.cast(), len1, len1),
+                        match arg0 {
+                            0 => None,
+                            1 => {
+                                let e = {
+                                    let len0 = arg2;
+                                    _rt::Vec::from_raw_parts(arg1.cast(), len0, len0)
+                                };
+                                Some(e)
+                            }
+                            _ => _rt::invalid_enum_discriminant(),
+                        },
+                        (_rt::Vec::from_raw_parts(arg3.cast(), len1, len1),),
                     );
                     let ptr3 = _RET_AREA.0.as_mut_ptr().cast::<u8>();
-                    let (t4_0, t4_1) = result2;
-                    let vec5 = (t4_0).into_boxed_slice();
-                    let ptr5 = vec5.as_ptr().cast::<u8>();
-                    let len5 = vec5.len();
-                    ::core::mem::forget(vec5);
-                    *ptr3.add(4).cast::<usize>() = len5;
-                    *ptr3.add(0).cast::<*mut u8>() = ptr5.cast_mut();
-                    let vec6 = (t4_1).into_boxed_slice();
-                    let ptr6 = vec6.as_ptr().cast::<u8>();
-                    let len6 = vec6.len();
-                    ::core::mem::forget(vec6);
-                    *ptr3.add(12).cast::<usize>() = len6;
-                    *ptr3.add(8).cast::<*mut u8>() = ptr6.cast_mut();
+                    match result2 {
+                        Ok(e) => {
+                            *ptr3.add(0).cast::<u8>() = (0i32) as u8;
+                            let (t4_0, t4_1) = e;
+                            match t4_0 {
+                                Some(e) => {
+                                    *ptr3.add(4).cast::<u8>() = (1i32) as u8;
+                                    let vec5 = (e).into_boxed_slice();
+                                    let ptr5 = vec5.as_ptr().cast::<u8>();
+                                    let len5 = vec5.len();
+                                    ::core::mem::forget(vec5);
+                                    *ptr3.add(12).cast::<usize>() = len5;
+                                    *ptr3.add(8).cast::<*mut u8>() = ptr5.cast_mut();
+                                }
+                                None => {
+                                    *ptr3.add(4).cast::<u8>() = (0i32) as u8;
+                                }
+                            };
+                            let (t6_0,) = t4_1;
+                            let vec7 = (t6_0).into_boxed_slice();
+                            let ptr7 = vec7.as_ptr().cast::<u8>();
+                            let len7 = vec7.len();
+                            ::core::mem::forget(vec7);
+                            *ptr3.add(20).cast::<usize>() = len7;
+                            *ptr3.add(16).cast::<*mut u8>() = ptr7.cast_mut();
+                        }
+                        Err(e) => {
+                            *ptr3.add(0).cast::<u8>() = (1i32) as u8;
+                            let vec8 = (e.into_bytes()).into_boxed_slice();
+                            let ptr8 = vec8.as_ptr().cast::<u8>();
+                            let len8 = vec8.len();
+                            ::core::mem::forget(vec8);
+                            *ptr3.add(8).cast::<usize>() = len8;
+                            *ptr3.add(4).cast::<*mut u8>() = ptr8.cast_mut();
+                        }
+                    };
                     ptr3
                 }
                 #[doc(hidden)]
                 #[allow(non_snake_case)]
                 pub unsafe fn __post_return_handle_request<T: Guest>(arg0: *mut u8) {
-                    let l0 = *arg0.add(0).cast::<*mut u8>();
-                    let l1 = *arg0.add(4).cast::<usize>();
-                    let base2 = l0;
-                    let len2 = l1;
-                    _rt::cabi_dealloc(base2, len2 * 1, 1);
-                    let l3 = *arg0.add(8).cast::<*mut u8>();
-                    let l4 = *arg0.add(12).cast::<usize>();
-                    let base5 = l3;
-                    let len5 = l4;
-                    _rt::cabi_dealloc(base5, len5 * 1, 1);
+                    let l0 = i32::from(*arg0.add(0).cast::<u8>());
+                    match l0 {
+                        0 => {
+                            let l1 = i32::from(*arg0.add(4).cast::<u8>());
+                            match l1 {
+                                0 => {}
+                                _ => {
+                                    let l2 = *arg0.add(8).cast::<*mut u8>();
+                                    let l3 = *arg0.add(12).cast::<usize>();
+                                    let base4 = l2;
+                                    let len4 = l3;
+                                    _rt::cabi_dealloc(base4, len4 * 1, 1);
+                                }
+                            }
+                            let l5 = *arg0.add(16).cast::<*mut u8>();
+                            let l6 = *arg0.add(20).cast::<usize>();
+                            let base7 = l5;
+                            let len7 = l6;
+                            _rt::cabi_dealloc(base7, len7 * 1, 1);
+                        }
+                        _ => {
+                            let l8 = *arg0.add(4).cast::<*mut u8>();
+                            let l9 = *arg0.add(8).cast::<usize>();
+                            _rt::cabi_dealloc(l8, l9, 1);
+                        }
+                    }
                 }
                 pub trait Guest {
-                    fn handle_send(msg: Json, state: Json) -> Json;
-                    fn handle_request(msg: Json, state: Json) -> (Json, Json);
+                    fn handle_send(
+                        state: Option<Json>,
+                        params: (Json,),
+                    ) -> Result<(Option<Json>,), _rt::String>;
+                    fn handle_request(
+                        state: Option<Json>,
+                        params: (Json,),
+                    ) -> Result<(Option<Json>, (Json,)), _rt::String>;
                 }
                 #[doc(hidden)]
                 macro_rules! __export_ntwk_theater_message_server_client_cabi {
                     ($ty:ident with_types_in $($path_to_types:tt)*) => {
                         const _ : () = { #[export_name =
                         "ntwk:theater/message-server-client#handle-send"] unsafe extern
-                        "C" fn export_handle_send(arg0 : * mut u8, arg1 : usize, arg2 : *
-                        mut u8, arg3 : usize,) -> * mut u8 { $($path_to_types)*::
-                        _export_handle_send_cabi::<$ty > (arg0, arg1, arg2, arg3) }
-                        #[export_name =
+                        "C" fn export_handle_send(arg0 : i32, arg1 : * mut u8, arg2 :
+                        usize, arg3 : * mut u8, arg4 : usize,) -> * mut u8 {
+                        $($path_to_types)*:: _export_handle_send_cabi::<$ty > (arg0,
+                        arg1, arg2, arg3, arg4) } #[export_name =
                         "cabi_post_ntwk:theater/message-server-client#handle-send"]
                         unsafe extern "C" fn _post_return_handle_send(arg0 : * mut u8,) {
                         $($path_to_types)*:: __post_return_handle_send::<$ty > (arg0) }
                         #[export_name =
                         "ntwk:theater/message-server-client#handle-request"] unsafe
-                        extern "C" fn export_handle_request(arg0 : * mut u8, arg1 :
-                        usize, arg2 : * mut u8, arg3 : usize,) -> * mut u8 {
+                        extern "C" fn export_handle_request(arg0 : i32, arg1 : * mut u8,
+                        arg2 : usize, arg3 : * mut u8, arg4 : usize,) -> * mut u8 {
                         $($path_to_types)*:: _export_handle_request_cabi::<$ty > (arg0,
-                        arg1, arg2, arg3) } #[export_name =
+                        arg1, arg2, arg3, arg4) } #[export_name =
                         "cabi_post_ntwk:theater/message-server-client#handle-request"]
                         unsafe extern "C" fn _post_return_handle_request(arg0 : * mut
                         u8,) { $($path_to_types)*:: __post_return_handle_request::<$ty >
@@ -876,9 +1000,9 @@ pub mod exports {
                 #[doc(hidden)]
                 pub(crate) use __export_ntwk_theater_message_server_client_cabi;
                 #[repr(align(4))]
-                struct _RetArea([::core::mem::MaybeUninit<u8>; 16]);
+                struct _RetArea([::core::mem::MaybeUninit<u8>; 24]);
                 static mut _RET_AREA: _RetArea = _RetArea(
-                    [::core::mem::MaybeUninit::uninit(); 16],
+                    [::core::mem::MaybeUninit::uninit(); 24],
                 );
             }
         }
@@ -964,35 +1088,36 @@ pub(crate) use __export_store_impl as export;
 #[cfg(target_arch = "wasm32")]
 #[link_section = "component-type:wit-bindgen:0.36.0:ntwk:theater:store:encoded world"]
 #[doc(hidden)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 1112] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xdc\x07\x01A\x02\x01\
-A\x10\x01B\x0e\x01p}\x04\0\x04json\x03\0\0\x01p}\x04\0\x05state\x03\0\x02\x01s\x04\
-\0\x08actor-id\x03\0\x04\x01kw\x01r\x03\x0aevent-types\x06parent\x06\x04data\x01\
-\x04\0\x05event\x03\0\x07\x01r\x02\x04hashw\x05event\x08\x04\0\x0ameta-event\x03\
-\0\x09\x01p\x0a\x01r\x01\x06events\x0b\x04\0\x05chain\x03\0\x0c\x03\0\x12ntwk:th\
-eater/types\x05\0\x02\x03\0\0\x04json\x02\x03\0\0\x05chain\x02\x03\0\0\x08actor-\
-id\x01B\x0c\x02\x03\x02\x01\x01\x04\0\x04json\x03\0\0\x02\x03\x02\x01\x02\x04\0\x05\
-chain\x03\0\x02\x02\x03\x02\x01\x03\x04\0\x08actor-id\x03\0\x04\x01@\x01\x03msgs\
-\x01\0\x04\0\x03log\x01\x06\x01@\x01\x0dmanifest-paths\0\x05\x04\0\x05spawn\x01\x07\
-\x01@\0\0\x03\x04\0\x09get-chain\x01\x08\x03\0\x14ntwk:theater/runtime\x05\x04\x01\
-B\x12\x01p}\x01j\x01\0\x01s\x01@\x01\x04paths\0\x01\x04\0\x09read-file\x01\x02\x01\
-j\0\x01s\x01@\x02\x04paths\x07contents\0\x03\x04\0\x0awrite-file\x01\x04\x01ps\x01\
-j\x01\x05\x01s\x01@\x01\x04paths\0\x06\x04\0\x0alist-files\x01\x07\x01@\x01\x04p\
-aths\0\x03\x04\0\x0bdelete-file\x01\x08\x04\0\x0acreate-dir\x01\x08\x04\0\x0adel\
-ete-dir\x01\x08\x01j\x01\x7f\x01s\x01@\x01\x04paths\0\x09\x04\0\x0bpath-exists\x01\
-\x0a\x03\0\x17ntwk:theater/filesystem\x05\x05\x01B\x0a\x02\x03\x02\x01\x01\x04\0\
-\x04json\x03\0\0\x02\x03\x02\x01\x03\x04\0\x08actor-id\x03\0\x02\x01j\0\x01s\x01\
-@\x02\x08actor-id\x03\x03msg\x01\0\x04\x04\0\x04send\x01\x05\x01j\x01\x01\x01s\x01\
-@\x02\x08actor-id\x03\x03msg\x01\0\x06\x04\0\x07request\x01\x07\x03\0\x20ntwk:th\
-eater/message-server-host\x05\x06\x02\x03\0\0\x05event\x01B\x07\x02\x03\x02\x01\x01\
-\x04\0\x04json\x03\0\0\x02\x03\x02\x01\x07\x04\0\x05event\x03\0\x02\x01k\x01\x01\
-@\x01\x04data\x04\0\x01\x04\0\x04init\x01\x05\x04\0\x12ntwk:theater/actor\x05\x08\
-\x01B\x09\x02\x03\x02\x01\x01\x04\0\x04json\x03\0\0\x02\x03\x02\x01\x07\x04\0\x05\
-event\x03\0\x02\x01@\x02\x03msg\x01\x05state\x01\0\x01\x04\0\x0bhandle-send\x01\x04\
-\x01o\x02\x01\x01\x01@\x02\x03msg\x01\x05state\x01\0\x05\x04\0\x0ehandle-request\
-\x01\x06\x04\0\"ntwk:theater/message-server-client\x05\x09\x04\0\x12ntwk:theater\
-/store\x04\0\x0b\x0b\x01\0\x05store\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\
-\x0dwit-component\x070.220.1\x10wit-bindgen-rust\x060.36.0";
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 1129] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xed\x07\x01A\x02\x01\
+A\x11\x01B\x0f\x01p}\x04\0\x04json\x03\0\0\x01p}\x01k\x02\x04\0\x05state\x03\0\x03\
+\x01s\x04\0\x08actor-id\x03\0\x05\x01kw\x01r\x03\x0aevent-types\x06parent\x07\x04\
+data\x01\x04\0\x05event\x03\0\x08\x01r\x02\x04hashw\x05event\x09\x04\0\x0ameta-e\
+vent\x03\0\x0a\x01p\x0b\x01r\x01\x06events\x0c\x04\0\x05chain\x03\0\x0d\x03\0\x12\
+ntwk:theater/types\x05\0\x02\x03\0\0\x04json\x02\x03\0\0\x05chain\x02\x03\0\0\x08\
+actor-id\x01B\x0a\x02\x03\x02\x01\x01\x04\0\x04json\x03\0\0\x02\x03\x02\x01\x02\x04\
+\0\x05chain\x03\0\x02\x02\x03\x02\x01\x03\x04\0\x08actor-id\x03\0\x04\x01@\x01\x03\
+msgs\x01\0\x04\0\x03log\x01\x06\x01@\0\0\x03\x04\0\x09get-chain\x01\x07\x03\0\x14\
+ntwk:theater/runtime\x05\x04\x01B\x12\x01p}\x01j\x01\0\x01s\x01@\x01\x04paths\0\x01\
+\x04\0\x09read-file\x01\x02\x01j\0\x01s\x01@\x02\x04paths\x07contents\0\x03\x04\0\
+\x0awrite-file\x01\x04\x01ps\x01j\x01\x05\x01s\x01@\x01\x04paths\0\x06\x04\0\x0a\
+list-files\x01\x07\x01@\x01\x04paths\0\x03\x04\0\x0bdelete-file\x01\x08\x04\0\x0a\
+create-dir\x01\x08\x04\0\x0adelete-dir\x01\x08\x01j\x01\x7f\x01s\x01@\x01\x04pat\
+hs\0\x09\x04\0\x0bpath-exists\x01\x0a\x03\0\x17ntwk:theater/filesystem\x05\x05\x01\
+B\x0a\x02\x03\x02\x01\x01\x04\0\x04json\x03\0\0\x02\x03\x02\x01\x03\x04\0\x08act\
+or-id\x03\0\x02\x01j\0\x01s\x01@\x02\x08actor-id\x03\x03msg\x01\0\x04\x04\0\x04s\
+end\x01\x05\x01j\x01\x01\x01s\x01@\x02\x08actor-id\x03\x03msg\x01\0\x06\x04\0\x07\
+request\x01\x07\x03\0\x20ntwk:theater/message-server-host\x05\x06\x02\x03\0\0\x05\
+state\x01B\x07\x02\x03\x02\x01\x07\x04\0\x05state\x03\0\0\x01o\x01s\x01o\x01\x01\
+\x01j\x01\x03\x01s\x01@\x02\x05state\x01\x06params\x02\0\x04\x04\0\x04init\x01\x05\
+\x04\0\x12ntwk:theater/actor\x05\x08\x02\x03\0\0\x05event\x01B\x0e\x02\x03\x02\x01\
+\x01\x04\0\x04json\x03\0\0\x02\x03\x02\x01\x09\x04\0\x05event\x03\0\x02\x01k\x01\
+\x01o\x01\x01\x01o\x01\x04\x01j\x01\x06\x01s\x01@\x02\x05state\x04\x06params\x05\
+\0\x07\x04\0\x0bhandle-send\x01\x08\x01o\x02\x04\x05\x01j\x01\x09\x01s\x01@\x02\x05\
+state\x04\x06params\x05\0\x0a\x04\0\x0ehandle-request\x01\x0b\x04\0\"ntwk:theate\
+r/message-server-client\x05\x0a\x04\0\x12ntwk:theater/store\x04\0\x0b\x0b\x01\0\x05\
+store\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\x070.220.\
+1\x10wit-bindgen-rust\x060.36.0";
 #[inline(never)]
 #[doc(hidden)]
 pub fn __link_custom_section_describing_imports() {
