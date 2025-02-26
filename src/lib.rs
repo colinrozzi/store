@@ -40,8 +40,11 @@ impl State {
         let key = format!("{:x}", Sha1::digest(&value));
         // write to file
         let value_str = String::from_utf8(value.clone()).unwrap();
+        log(&format!("Writing to file: {} => {}", key, value_str));
         write_file(&key, &value_str).unwrap();
+        log(&format!("Wrote to file: {}", key));
         self.cache.insert(key.clone(), value);
+        log(&format!("Inserted into cache: {}", key));
         key
     }
 }
@@ -176,7 +179,12 @@ impl MessageGuest for Component {
             }
         }
 
-        Ok((Some(serde_json::to_vec(&response).unwrap()), (msg,)))
+        log(&format!("Response: {:?}", response));
+
+        Ok((
+            Some(serde_json::to_vec(&state).unwrap()),
+            (serde_json::to_vec(&response).unwrap(),),
+        ))
     }
 }
 
