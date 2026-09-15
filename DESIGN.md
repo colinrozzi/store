@@ -1,5 +1,17 @@
 # store — design (v0, captured from the 2026-09-14/15 whiteboard with Colin)
 
+## Starting point (2026-09-15): fresh build on current theater + mesh
+Colin's call: **start fresh.** A prior attempt lives in `../store-old/` (Mar–Apr 2026):
+`content-store` (SHA256 CAS actor), `label`/`ntwk` (mutable labels + a **bespoke peer-sync**:
+peer certs/keys, `SyncPush`), and `sync-test`/`router-sync-test`/`resilience-test`. It's on stale
+foundations twice over — **pre-#204 theater** and a **peer-sync that predates the mesh** — so we're
+NOT porting it. We build the new store on the **current theater runtime (post-#204)** and **replicate
+via the mesh** instead of bespoke peer-sync.
+**Keep store-old as REFERENCE, not code to revive:** (a) the `content-store` CAS shape is a decent
+sketch of Layer 2; (b) more valuable — `sync-test`/`resilience-test` are effectively a ready-made
+**test spec** for what fleet replication must survive (crashes, partitions, routing). Mine those
+scenarios; write the new implementation clean.
+
 ## The core insight: two layers, opposite distribution characteristics
 The store is **one store with two layers** — which is exactly theater's own store structure
 (`labels/` + `data/`) lifted to fleet scale. The difference between them is **mutability**, and
