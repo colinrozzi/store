@@ -1,0 +1,18 @@
+[package]
+name = "store-sm"
+version = "0.1.0"
+edition = "2021"
+description = "The store's mutable name->hash index as an RSM state-machine (LAYER0-DESIGN Interface 1): CRDT LWW register per name, node-pubkey allow-list write-auth seeded by a Genesis event. Composed into the mesh node via mesh.lib.mkComposite."
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+packr-guest = "0.15"
+store-protocol = { path = "../store-protocol" }
+
+[profile.release]
+opt-level = "s"
+lto = true
