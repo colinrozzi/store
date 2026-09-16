@@ -107,20 +107,35 @@ inherit vs. what we must add:
   path; `save_chain` is not wired). So after a cold boot the node has no local state
   until it re-syncs from peers — which **violates** "no network at read time."
 
-**Options (pick one before building the index):**
-- **(D1-a) theater persists the actor chain across cold boot** + auto-replays on
-  init → store inherits cold-boot durability for free. *Needs a theater-dev confirm
-  (does this exist / is it planned?).*
-- **(D1-b) mesh node-state persistence** (mesh-dev's `docs/DESIGN-persistence.md`,
-  spec'd, not landed): the system imports `theater:simple/store`, writes the node
-  blob on mutate, `node.resume(bytes)` on init. mesh-dev has offered to own this.
-  Store consumes it; persists the *full* DAG state (minimal re-sync on boot).
+**RESOLVED (2026-09-16, theater-dev + manager): bounded node-state snapshot.**
 
-**Recommendation:** **co-time with (D1-b)** — it is concrete, mesh-dev owns it, and it
-persists the whole node-state (not just the index projection), so a cold-booted box
-serves the last-known index locally and reconciles in the background. Pursue a
-theater-dev confirm on (D1-a) in parallel as a possibly-simpler alternative. **Until
-one lands, the store is warm-restart-safe but not cold-boot-safe — flag before prod.**
+- **(D1-a) theater turnkey chain persistence — RULED OUT.** theater-dev, source-
+  definitive (`chain/mod.rs`): events are hashed, broadcast to subscribers, and
+  **DROPPED**; the runtime keeps only the rolling head hash and writes no chain file.
+  Durability is a deliberate *userland* capability, not a runtime feature. Even if it
+  existed, whole-chain replay re-folds the entire history → cold-boot time grows
+  **unbounded** with every Put (manager's scaling point). Dead on both counts.
+- **(D1-b) bounded node-state snapshot — CHOSEN.** mesh-dev's
+  `docs/DESIGN-persistence.md`: the system imports `theater:simple/store`, writes the
+  node blob on mutate, `node.resume(bytes)` on init. Size is bounded by the *snapshot*
+  (current folded state + frontier), not history length — the healthy long-run answer
+  for a store that accumulates entries indefinitely. mesh-dev owns this build.
+
+**NOT** a store-backed *index projection* (hydrate just `map<name,hash>` from
+`theater:simple/store` at init — theater-dev's practical inbox-mailbox pattern). That
+serves stale-but-local reads but drops the **DAG frontier**, so a cold-booted node
+could not reconcile/catch-up on rejoin — the trap the manager flagged. We need the
+*node-state* snapshot, not the projection, precisely because it retains the frontier.
+
+- **Open confirm (mesh-dev):** `node.resume(bytes)` must restore enough **DAG frontier**
+  that a cold-booted node reconciles with peers on rejoin (catches up on events missed
+  while down). If resume restores the frontier, D1-b is complete.
+- **Sequencing:** build the index SM now against the in-memory path; wire `resume()`
+  when D1-b lands. Warm-restart is safe today (chain replay); cold-boot is NOT until
+  D1-b lands.
+
+**ACCEPTANCE BAR (manager):** the store is production-ready not at "index SM green"
+but at **"cold-boot a box, serve the last-known index with the network unplugged."**
 
 ---
 
@@ -162,8 +177,8 @@ index entry reintroduces the hash).
 1. **Index SM** (`store-sm`): state + Put/Remove + validate(allow-list) + apply(LWW) +
    members. Compose via `mkComposite` with the generic mesh-system; drive over
    `my:mesh.*`. Prove: authorized Put admitted, unauthorized rejected, concurrent
-   same-name converges, `current-state` = expected map. **Blocked on D1** (don't ship
-   without a cold-boot answer).
+   same-name converges, `current-state` = expected map. **Build now against the
+   in-memory path** (approved); D1-b (`resume()`) wires in for the prod acceptance bar.
 2. **Content-replication actor** (D2): tcp fetch-by-hash + quorum replication +
    membership-seeded peers, over `content-store`.
 3. **GC sweep** + durability policy.
@@ -171,8 +186,10 @@ index entry reintroduces the hash).
    boot-serve it locally (closes the http-pull boot-durability gap).
 
 ## 5. Open decisions
-- **D1** — cold-boot persistence: (a) theater chain persistence [confirm w/ theater-dev]
-  vs (b) mesh node-state persistence [mesh-dev owns, spec'd]. **Recommend (b), co-timed.**
+- **D1** — cold-boot persistence: **RESOLVED → bounded mesh node-state snapshot (D1-b),
+  mesh-dev owns.** theater turnkey (a) ruled out (explicit-only + unbounded replay).
+  One confirm open: `node.resume(bytes)` restores the DAG frontier for reconcile.
+  Acceptance bar = cold-boot serves last-known index with the network unplugged.
 - **D2** — content-transport actor: separate tcp actor, membership-seeded. **Agreed w/ mesh-dev.**
 - Digest = **SHA-256** (ratified; isolated in one fn, blake3-swappable).
 - Typed `my:store.*` surface: deferred past v1 (generic `my:mesh.*` first).
