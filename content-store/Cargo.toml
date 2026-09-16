@@ -1,0 +1,20 @@
+[package]
+name = "content-store"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Guest-side Pack calling convention (dlmalloc-backed, plain `cargo build` — no
+# composition step). Published on crates.io; pinned to the same 0.15 line the mesh
+# SMs (bank-sm/chat-sm) build against, so the store's content actor and its future
+# mesh index SM share one toolchain lineage.
+packr-guest = "0.15"
+
+[profile.release]
+opt-level = "s"
+lto = true

@@ -1,0 +1,21 @@
+name = "content-store"
+version = "0.1.0"
+package = "./target/wasm32-unknown-unknown/release/content_store.wasm"
+
+# The runtime capability (log + shutdown) is Disallow-by-default in theater's
+# permission policy — it must be granted explicitly or the `theater:simple/runtime`
+# host imports are never registered (instantiation fails with "unknown import").
+# `inherit` takes the spawn parent's runtime permissions.
+[permission_policy.runtime]
+type = "inherit"
+
+# The runtime handler gives us log + shutdown (the self-test shuts down with a
+# pass/fail marker).
+[[handler]]
+type = "runtime"
+
+# The content-addressed store handler is the per-box CAS substrate this actor
+# wraps (SHA-256, dedup). base_path is where the local content lands.
+[[handler]]
+type = "store"
+base_path = "/tmp/theater-content-store"
