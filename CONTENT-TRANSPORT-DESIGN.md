@@ -49,14 +49,22 @@ no ordering, no auth-on-read needed: a hash means the same bytes forever, from a
 
 ---
 
-## 3. Peer discovery — from the mesh, not reinvented
+## 3. Peer discovery — mesh owns IDENTITY, the content layer owns TOPOLOGY
 
-- **Membership** is the mesh's, via `Session::members()` → the network's member **pubkeys**
-  (the "use what the node computes" rule). The content-node reads members from the local
-  store index network (or is handed them).
-- **`pubkey → address`** resolves from a registry (same source the node's `dial` list uses;
-  for v0, a static config / the roster). Seed the peer set from `members() ∪ allow_list`.
-- No separate membership protocol — the store index network already knows who the peers are.
+Clean layering (mesh-dev, confirmed): **mesh owns identity** (member pubkeys = who is
+write-authorized) + the **consensus index**; the **content layer owns topology** — which
+boxes actually hold blobs, their addresses, replication factor, and liveness. Mesh
+deliberately exposes *none* of that (no holder set, no online-count, no peer addresses).
+
+- **Content-holder roster is the content layer's OWN** (config/registry), NOT `members()`.
+  `members()` = the store SM's allow-list = the write-*authorized* node pubkeys — a
+  *different* population than the content *replicas* (may overlap, not the same set). Quorum
+  is over **holders**, which only the content layer tracks.
+- **`pubkey → address`** resolves from **my own registry/roster** — the same one that
+  populates each node's mesh-system `dial` config (`{pubkey, address}`). There is no
+  mesh-side runtime address source; the node's peer table + dial list are internal.
+- Candidate identities can be *seeded* from `members() ∪ allow_list`, but the durable
+  holder set + addresses + RF + liveness are the content layer's to own.
 
 ---
 
@@ -68,11 +76,15 @@ no ordering, no auth-on-read needed: a hash means the same bytes forever, from a
   node holding the bytes is authoritative; replication is just copying. No leader, no order.
 - **Authoritative copies** live on the quorum; **edges/leaves** hold nothing until they
   `get` (fetch-on-miss) and then **cache**.
-- **Quorum sizing (v0):** `RF = min(peers, 3)` or `floor(N/2)+1` of the active network,
-  whichever is smaller — pick a concrete v0 value with mesh-dev when wiring; the policy knob
-  lives here, not in the mesh.
-- **Fetch-on-miss order:** probe `REQ_HAVE` a few peers (prefer quorum holders), `REQ_GET`
-  from the first `HAVE`. Cache the result. Retry/next-peer on failure.
+- **Quorum sizing:** **v0 = a fixed `RF` (2 or 3) over the content layer's OWN
+  durability-holder roster** (config/registry) — NOT derived from mesh `members()` (mesh
+  tracks authorization, not holders, and exposes no liveness/online-count). The RF policy
+  knob lives in the content layer.
+- **Liveness-aware quorum** (count only holders that actually respond) = **v1, and it's
+  ours**: the content-node sees who answers `REQ_HAVE`/`REQ_GET`, so it tracks holder
+  liveness itself. Mesh gives no live peer count.
+- **Fetch-on-miss order:** probe `REQ_HAVE` a few roster holders, `REQ_GET` from the first
+  `HAVE`. Cache the result. Retry/next-holder on failure.
 
 ---
 
@@ -101,8 +113,10 @@ no ordering, no auth-on-read needed: a hash means the same bytes forever, from a
    keyed on the live index, quorum-aware GC.
 
 ## 7. Open items
-- Quorum RF concrete value + how "active network size" is read (from the store index network's
-  members) — settle with mesh-dev when wiring.
+- ~~Quorum RF + reading active-network-size~~ RESOLVED (mesh-dev): fixed RF 2–3 over the
+  content layer's OWN holder roster; mesh exposes no holders/liveness. Liveness-aware = v1, ours.
+- ~~pubkey→address resolution~~ RESOLVED (mesh-dev): my own registry/roster (same one that
+  seeds each node's mesh-system `dial` config); no mesh-side runtime address source.
 - Transport auth: v0 is membership-permissive (like the mesh handshake) — content is public +
   integrity-checked, so an unauthorized reader gaining public bytes is not a breach. Revisit
   for the secrets tier.
