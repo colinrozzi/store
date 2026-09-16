@@ -10,7 +10,7 @@ description = "The store's mutable name->hash index as an RSM state-machine (LAY
 crate-type = ["cdylib"]
 
 [dependencies]
-packr-guest = "0.15"
+packr-guest = "0.24"
 store-protocol = { path = "../store-protocol" }
 
 [profile.release]
