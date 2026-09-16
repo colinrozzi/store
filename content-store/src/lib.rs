@@ -8,27 +8,33 @@
 //! `name -> hash` index (Layer 1, rides the mesh as an app-SM) sits *on top* of
 //! this and is the GC root.
 //!
-//! ## What this actor is
+//! ## The store owns a STRONG digest (SHA-256), not theater's SHA-1
 //!
-//! A thin, provable wrapper over theater's `theater:simple/store` handler, which
-//! already implements a SHA-256 content-addressed store with automatic
-//! deduplication. We expose the deliberately-dumb CAS primitive:
+//! This layer IS the fleet's supply-chain-integrity layer: a box must be able to
+//! trust "this hash == these exact bytes" before it loads a wasm into the spine.
+//! theater's `store` handler content-addresses with SHA-1, which is
+//! collision-broken (SHAttered, 2017) — unacceptable for an integrity address. So
+//! the store computes its **own SHA-256** as the public content-address and uses
+//! `theater:simple/store` underneath purely as an **opaque byte sink** (its
+//! internal SHA-1 ref is its own business and is never exposed). No theater change,
+//! no fleet-wide store migration — the store just owns its digest.
 //!
-//! * `put(bytes)   -> hash`   — store content, return its SHA-256 content ref
-//! * `get(hash)    -> bytes`  — retrieve content by hash
-//! * `has(hash)    -> bool`   — does this hash exist locally?
+//! Mechanically: `put` stores the bytes under a theater **label** whose name is the
+//! SHA-256 hex, and `get` resolves that label, fetches the bytes, and
+//! **re-verifies** the SHA-256 before returning them (digest-verified by
+//! construction). The primitive:
 //!
-//! At the guest ABI a `content-ref` is flattened to its hash `string`, so a hash
-//! is just a `String` here.
+//! * `put(bytes)   -> sha256`  — store content, return its SHA-256 content ref
+//! * `get(sha256)  -> bytes`   — retrieve + integrity-verify content by hash
+//! * `has(sha256)  -> bool`    — does this hash exist locally?
 //!
 //! ## Proving it (this actor's `init`)
 //!
 //! There is nothing to consensus-check, so the CAS is provable *today*, with no
 //! mesh. On init we run a self-test against the real host store and assert the
 //! contract, then shut down with a pass/fail marker (the store-test harness
-//! pattern). The manager's confirm list — put->hash, get round-trips, has, and
-//! dedup (identical bytes -> same hash -> one stored object) — maps 1:1 to the
-//! tests below.
+//! pattern). put->hash (SHA-256), get round-trips + verifies, has, and dedup
+//! (identical bytes -> same hash -> one stored object) map 1:1 to the tests below.
 
 #![no_std]
 
@@ -39,14 +45,15 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use packr_guest::{export, import, pack_types, Value, ValueType};
+use sha2::{Digest, Sha256};
 
 packr_guest::setup_guest!();
 
 // Interface metadata embedded as `__pack_types` — theater verifies every actor
 // carries this at setup (it is how exports are discovered and interface hashes
-// checked). Declare the host functions we import (subset of each interface is
+// checked). Declare the host functions we import (a subset of an interface is
 // fine) plus the `actor.init` export. Signatures mirror theater's runtime.pact /
-// store.pact exactly (content-ref is a hash `string`).
+// store.pact exactly (a theater content-ref is a hash `string`).
 pack_types! {
     imports {
         theater:simple/runtime {
@@ -55,9 +62,9 @@ pack_types! {
         }
         theater:simple/store {
             new: func() -> result<string, string>,
-            store: func(store-id: string, content: list<u8>) -> result<string, string>,
+            store-at-label: func(store-id: string, label: string, content: list<u8>) -> result<string, string>,
             get: func(store-id: string, content-ref: string) -> result<list<u8>, string>,
-            exists: func(store-id: string, content-ref: string) -> result<bool, string>,
+            get-by-label: func(store-id: string, label: string) -> result<option<string>, string>,
             calculate-total-size: func(store-id: string) -> result<u64, string>,
         }
     }
@@ -79,26 +86,31 @@ fn shutdown(data: Option<Vec<u8>>) -> Result<(), String>;
 #[import(module = "theater:simple/store", name = "new")]
 fn store_new() -> Result<String, String>;
 
-#[import(module = "theater:simple/store", name = "store")]
-fn store_store(store_id: String, content: Vec<u8>) -> Result<String, String>;
+// Store content under a label (the label is our SHA-256 address). Returns
+// theater's own internal ref, which we treat as opaque and discard.
+#[import(module = "theater:simple/store", name = "store-at-label")]
+fn store_at_label(store_id: String, label: String, content: Vec<u8>) -> Result<String, String>;
 
+// Fetch bytes by theater's own ref (obtained via the label lookup).
 #[import(module = "theater:simple/store", name = "get")]
 fn store_get(store_id: String, content_ref: String) -> Result<Vec<u8>, String>;
 
-#[import(module = "theater:simple/store", name = "exists")]
-fn store_exists(store_id: String, content_ref: String) -> Result<bool, String>;
+// Resolve our SHA-256 label to theater's internal ref (None if absent).
+#[import(module = "theater:simple/store", name = "get-by-label")]
+fn store_get_by_label(store_id: String, label: String) -> Result<Option<String>, String>;
 
 #[import(module = "theater:simple/store", name = "calculate-total-size")]
 fn store_calculate_size(store_id: String) -> Result<u64, String>;
 
 // ============================================================================
-// The CAS primitive
+// The CAS primitive — SHA-256 addressed, theater store as opaque byte sink
 // ============================================================================
 //
-// A `Cas` binds a theater store instance and exposes put/get/has. This is the
-// reusable seat the fetch-by-hash / durability layer will drive later: a box
-// missing a hash fetches the bytes from a peer and `put`s them here; the index
-// (Layer 1) points names at the hashes this layer holds.
+// A `Cas` binds a theater store instance and exposes put/get/has keyed by the
+// store's OWN SHA-256 digest. This is the reusable seat the fetch-by-hash /
+// durability layer will drive later: a box missing a hash fetches the bytes from a
+// peer, verifies them against the hash, and `put`s them here; the index (Layer 1)
+// points names at these SHA-256 hashes.
 
 /// A content-addressed store bound to one theater store instance.
 struct Cas {
@@ -113,21 +125,36 @@ impl Cas {
         })
     }
 
-    /// Store `bytes`, returning their SHA-256 content hash. Idempotent:
-    /// identical bytes always yield the same hash and are stored once (the host
-    /// handler deduplicates).
+    /// Store `bytes`, returning their SHA-256 content hash (64 lowercase hex).
+    /// Idempotent: identical bytes always yield the same hash and are stored once
+    /// (theater dedups the underlying bytes; the label is content-derived).
     fn put(&self, bytes: Vec<u8>) -> Result<String, String> {
-        store_store(self.store_id.clone(), bytes)
+        let hash = sha256_hex(&bytes);
+        // theater's returned ref is its internal SHA-1 address — opaque to us.
+        let _theater_ref = store_at_label(self.store_id.clone(), hash.clone(), bytes)?;
+        Ok(hash)
     }
 
-    /// Retrieve the bytes for `hash`.
+    /// Retrieve the bytes for `hash`, verifying they hash back to it. Returns an
+    /// error if the hash is absent or the stored bytes fail the digest check.
     fn get(&self, hash: &str) -> Result<Vec<u8>, String> {
-        store_get(self.store_id.clone(), String::from(hash))
+        let theater_ref = store_get_by_label(self.store_id.clone(), String::from(hash))?
+            .ok_or_else(|| format!("no content for hash {}", hash))?;
+        let bytes = store_get(self.store_id.clone(), theater_ref)?;
+        // Digest-verify: the whole point of an integrity layer.
+        let actual = sha256_hex(&bytes);
+        if actual != hash {
+            return Err(format!(
+                "integrity violation: content for {} hashes to {}",
+                hash, actual
+            ));
+        }
+        Ok(bytes)
     }
 
     /// Does `hash` exist in this store?
     fn has(&self, hash: &str) -> Result<bool, String> {
-        store_exists(self.store_id.clone(), String::from(hash))
+        Ok(store_get_by_label(self.store_id.clone(), String::from(hash))?.is_some())
     }
 
     /// Total on-disk size of stored content (post-deduplication). Used by the
@@ -137,44 +164,53 @@ impl Cas {
     }
 }
 
+/// SHA-256 of `bytes` as 64 lowercase hex chars — the store's public address.
+fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut s = String::with_capacity(digest.len() * 2);
+    for &b in digest.iter() {
+        s.push(HEX[(b >> 4) as usize] as char);
+        s.push(HEX[(b & 0x0f) as usize] as char);
+    }
+    s
+}
+
 // ============================================================================
 // Self-test — proves the CAS contract against the real host store
 // ============================================================================
 
 fn run_tests() -> Result<(), String> {
-    log(String::from("=== content-store CAS self-test ==="));
+    log(String::from("=== content-store CAS self-test (SHA-256) ==="));
 
     let cas = Cas::open()?;
 
-    // --- put -> hash -------------------------------------------------------
+    // --- put -> hash (SHA-256) --------------------------------------------
     let a = b"Hello, the store!".to_vec();
     let hash_a = cas.put(a.clone())?;
     log(format!("put(A) -> {} ({} hex chars)", hash_a, hash_a.len()));
-    // The content ref is the hex digest of a cryptographic hash — the CAS contract
-    // (round-trip + dedup) is digest-agnostic, so we only require a non-empty
-    // lowercase-hex ref. NB: theater's store substrate emits a 40-char SHA-1 digest
-    // here, not the 64-char SHA-256 the WIT docstring advertises (see the note to
-    // the manager). The digest choice is a Layer-2 concern the fleet store can pin.
-    if hash_a.is_empty()
+    // The store's public address is a SHA-256 digest: 64 lowercase hex chars,
+    // independent of theater's internal SHA-1.
+    if hash_a.len() != 64
         || !hash_a
             .bytes()
             .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
     {
-        return Err(format!("expected a non-empty lowercase-hex hash, got {:?}", hash_a));
+        return Err(format!("expected a 64-char lowercase-hex SHA-256 hash, got {:?}", hash_a));
     }
 
-    // --- get round-trips the bytes ----------------------------------------
+    // --- get round-trips AND integrity-verifies ---------------------------
     let got = cas.get(&hash_a)?;
     if got != a {
         return Err(String::from("get(hash_a) did not round-trip the bytes"));
     }
-    log(String::from("get(hash_a) round-trips: OK"));
+    log(String::from("get(hash_a) round-trips + verifies: OK"));
 
     // --- has ---------------------------------------------------------------
     if !cas.has(&hash_a)? {
         return Err(String::from("has(hash_a) should be true"));
     }
-    // A well-formed but absent hash must report false.
+    // A well-formed but absent SHA-256 hash must report false.
     let absent = "0000000000000000000000000000000000000000000000000000000000000000";
     if cas.has(absent)? {
         return Err(String::from("has(absent) should be false"));

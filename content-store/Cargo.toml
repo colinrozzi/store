@@ -14,6 +14,10 @@ crate-type = ["cdylib"]
 # SMs (bank-sm/chat-sm) build against, so the store's content actor and its future
 # mesh index SM share one toolchain lineage.
 packr-guest = "0.15"
+# The store owns a STRONG content digest (SHA-256) as its public content-address —
+# it is the fleet's supply-chain-integrity layer, so it must not inherit theater's
+# collision-broken SHA-1. no_std build.
+sha2 = { version = "0.10", default-features = false }
 
 [profile.release]
 opt-level = "s"

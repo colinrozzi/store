@@ -1,14 +1,22 @@
 # content-store — the store's immutable CAS layer (Layer 2)
 
-The immutable `hash -> bytes` half of the store (see `../DESIGN.md`). A thin,
-provable wrapper over theater's `theater:simple/store` handler (already a
-content-addressed store with dedup), exposing the deliberately-dumb primitive:
+The immutable `hash -> bytes` half of the store (see `../DESIGN.md`). Exposes the
+deliberately-dumb, **SHA-256-addressed** primitive:
 
-| op | via |
-|----|-----|
-| `put(bytes) -> hash` | `store::store` |
-| `get(hash) -> bytes` | `store::get` |
-| `has(hash) -> bool`  | `store::exists` |
+| op | meaning |
+|----|---------|
+| `put(bytes) -> sha256` | store content, return its SHA-256 content ref |
+| `get(sha256) -> bytes` | retrieve **and integrity-verify** content by hash |
+| `has(sha256) -> bool`  | does this hash exist locally? |
+
+**The store owns a strong digest (SHA-256), not theater's SHA-1.** This layer IS the
+fleet's supply-chain-integrity layer (a box must trust "this hash == these exact
+bytes" before loading a wasm into the spine), and SHA-1 is collision-broken. So the
+store computes its own SHA-256 as the public content-address and uses
+`theater:simple/store` underneath purely as an **opaque byte sink** (bytes stored
+under a label = the SHA-256 hex; theater's internal SHA-1 ref is never exposed). No
+theater change, no fleet store migration. `get` re-verifies the SHA-256 before
+returning — digest-verified by construction.
 
 The mutable `name -> hash` index (Layer 1, a mesh app-SM) sits on top of this and
 is the GC root. This layer needs no consensus (the key *is* the hash) and is
@@ -17,14 +25,15 @@ distributed fleet-wide later by fetch-by-hash — none of which is in this crate
 ## Status — GREEN (built + tested locally under nix + theater)
 
 `init` runs a self-test against the real host store and shuts down with a
-`content-store-passed` / `content-store-failed:<reason>` marker. Proven:
+`content-store-passed` / `content-store-failed:<reason>` marker. Proven (the
+digests match `sha256sum` exactly):
 
 ```
-put(A) -> 1aed123f…76a6e (40 hex chars)
-get(hash_a) round-trips: OK
+put(A) -> f38d4386…0cac1 (64 hex chars)        # genuine SHA-256, == sha256sum
+get(hash_a) round-trips + verifies: OK
 has(present)=true, has(absent)=false: OK
 put(A) again -> same hash: OK                 # dedup: identical bytes -> same hash
-put(B) -> 8f9f22aa…7f8bd (distinct): OK
+put(B) -> 866ff06e…2dcc9 (distinct): OK
 total size 34 bytes == len(A)+len(B): OK       # dedup is real: A stored once
 === all CAS tests passed ===
 ```
@@ -71,10 +80,10 @@ cd run && theater spawn manifest.toml --log-level warn
   embedded `__pack_types` export ("no interface metadata"). Declare the host
   functions you import (a subset of an interface is fine) + the `actor.init`
   export; signatures must mirror theater's `runtime.pact` / `store.pact`.
-- **digest is SHA-1, not SHA-256.** theater's store substrate emits a 40-char
-  SHA-1 content ref here, despite the `store.wit` docstring saying SHA-256. The
-  CAS contract (round-trip + dedup) is digest-agnostic; the digest is a Layer-2
-  choice the fleet store can pin.
+- **theater's store digest is SHA-1** (40-char), despite the `store.wit` docstring
+  saying SHA-256. The store therefore does NOT inherit it: it owns its own SHA-256
+  (manager decision, 2026-09-16 — supply-chain integrity) and uses theater's store
+  as an opaque byte sink. `sha2` is a direct dep; the public address is SHA-256.
 - **theater version:** prebuilt CLIs top out at 0.3.18; 0.3.17 runs a standalone
   `packr-guest 0.15` actor cleanly. 0.3.18 has a runtime-handler quirk that
   suppresses `log`. The mesh's own theater (rev 307fa35 ≈ 0.3.26) can't be built

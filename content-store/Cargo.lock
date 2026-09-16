@@ -25,6 +25,7 @@ name = "content-store"
 version = "0.1.0"
 dependencies = [
  "packr-guest",
+ "sha2",
 ]
 
 [[package]]
