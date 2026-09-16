@@ -85,8 +85,10 @@ fn gate_write(author: &[u8], state: &IndexState) -> Result<(), String> {
 
 /// Deterministic transition (PURE, called only on events that passed `validate`).
 /// Admission-final hands us ALL concurrent writes, so the winner is picked from event
-/// CONTENT (`ts, author`) via the LWW register — never from fold position.
-fn do_apply(author: Vec<u8>, timestamp: u64, cmd: Cmd, mut state: IndexState) -> IndexState {
+/// CONTENT (`ts, author, id`) via the LWW register — never from fold position. `id` is
+/// the globally-unique event hash, the final tiebreak that makes the register a total
+/// order over events (so even a full `(ts, author)` tie is content-determined).
+fn do_apply(id: Vec<u8>, author: Vec<u8>, timestamp: u64, cmd: Cmd, mut state: IndexState) -> IndexState {
     match cmd {
         Cmd::Genesis { mut allow_list } => {
             if !state.genesis_done {
@@ -97,10 +99,10 @@ fn do_apply(author: Vec<u8>, timestamp: u64, cmd: Cmd, mut state: IndexState) ->
             }
         }
         Cmd::Put { name, hash } => {
-            state.lww_upsert(name, hash, false, timestamp, author);
+            state.lww_upsert(name, hash, false, timestamp, author, id);
         }
         Cmd::Remove { name } => {
-            state.lww_upsert(name, String::new(), true, timestamp, author);
+            state.lww_upsert(name, String::new(), true, timestamp, author, id);
         }
     }
     state
@@ -119,8 +121,8 @@ fn validate(_id: Vec<u8>, author: Vec<u8>, _timestamp: u64, payload: Cmd, state:
 }
 
 #[export]
-fn apply(_id: Vec<u8>, author: Vec<u8>, timestamp: u64, payload: Cmd, state: IndexState) -> IndexState {
-    do_apply(author, timestamp, payload, state)
+fn apply(id: Vec<u8>, author: Vec<u8>, timestamp: u64, payload: Cmd, state: IndexState) -> IndexState {
+    do_apply(id, author, timestamp, payload, state)
 }
 
 /// Project the member set (allow-listed node pubkeys) — feeds the mesh's witness-based
@@ -138,6 +140,9 @@ mod tests {
     fn pk(n: u8) -> Vec<u8> {
         vec![n; 32]
     }
+    fn id(n: u8) -> Vec<u8> {
+        vec![n; 32]
+    }
     fn genesis(allow: &[u8]) -> Cmd {
         Cmd::Genesis { allow_list: allow.iter().map(|&n| pk(n)).collect() }
     }
@@ -148,12 +153,15 @@ mod tests {
         core::iter::repeat(seed).take(64).collect()
     }
 
-    /// Fold honest events (author, ts, cmd), applying only what validates — the node's rule.
-    fn fold(seed: IndexState, evs: &[(Vec<u8>, u64, Cmd)]) -> IndexState {
+    /// One event: (id, author, timestamp, cmd).
+    type Ev = (Vec<u8>, Vec<u8>, u64, Cmd);
+
+    /// Fold honest events, applying only what validates — the node's rule.
+    fn fold(seed: IndexState, evs: &[Ev]) -> IndexState {
         let mut s = seed;
-        for (author, ts, c) in evs {
+        for (eid, author, ts, c) in evs {
             if do_validate(author, c, &s).is_ok() {
-                s = do_apply(author.clone(), *ts, c.clone(), s);
+                s = do_apply(eid.clone(), author.clone(), *ts, c.clone(), s);
             }
         }
         s
@@ -164,8 +172,8 @@ mod tests {
         let s = fold(
             IndexState::default(),
             &[
-                (pk(9), 1, genesis(&[1, 2])),
-                (pk(1), 10, put("wasm/inbox", &h('a'))),
+                (id(0), pk(9), 1, genesis(&[1, 2])),
+                (id(1), pk(1), 10, put("wasm/inbox", &h('a'))),
             ],
         );
         assert!(s.genesis_done);
@@ -174,11 +182,11 @@ mod tests {
 
     #[test]
     fn unauthorized_write_is_rejected() {
-        let s = fold(IndexState::default(), &[(pk(9), 1, genesis(&[1, 2]))]);
+        let s = fold(IndexState::default(), &[(id(0), pk(9), 1, genesis(&[1, 2]))]);
         // node 3 is not in the allow-list {1,2}
         assert!(do_validate(&pk(3), &put("x", &h('a')), &s).is_err());
         // and folding it changes nothing
-        let s2 = fold(s.clone(), &[(pk(3), 5, put("x", &h('a')))]);
+        let s2 = fold(s.clone(), &[(id(1), pk(3), 5, put("x", &h('a')))]);
         assert_eq!(s2.resolve("x"), None);
     }
 
@@ -189,7 +197,7 @@ mod tests {
 
     #[test]
     fn malformed_hash_is_rejected() {
-        let s = fold(IndexState::default(), &[(pk(9), 1, genesis(&[1]))]);
+        let s = fold(IndexState::default(), &[(id(0), pk(9), 1, genesis(&[1]))]);
         assert!(do_validate(&pk(1), &put("x", "not-a-hash"), &s).is_err());
         assert!(do_validate(&pk(1), &put("x", &"A".repeat(64)), &s).is_err(), "uppercase hex rejected");
         assert!(do_validate(&pk(1), &put("x", &h('a')), &s).is_ok());
@@ -197,10 +205,10 @@ mod tests {
 
     #[test]
     fn concurrent_same_name_converges_regardless_of_fold_order() {
-        let base = fold(IndexState::default(), &[(pk(9), 1, genesis(&[1, 2]))]);
+        let base = fold(IndexState::default(), &[(id(0), pk(9), 1, genesis(&[1, 2]))]);
         // two concurrent Puts to the SAME name, both authorized, distinct (ts, author)
-        let w1 = (pk(1), 100u64, put("k", &h('a')));
-        let w2 = (pk(2), 200u64, put("k", &h('b'))); // higher ts -> should win
+        let w1: Ev = (id(1), pk(1), 100, put("k", &h('a')));
+        let w2: Ev = (id(2), pk(2), 200, put("k", &h('b'))); // higher ts -> should win
         let order_ab = fold(base.clone(), &[w1.clone(), w2.clone()]);
         let order_ba = fold(base.clone(), &[w2.clone(), w1.clone()]);
         assert_eq!(order_ab, order_ba, "fold order must not change the converged state");
@@ -209,9 +217,9 @@ mod tests {
 
     #[test]
     fn ts_tie_breaks_on_author() {
-        let base = fold(IndexState::default(), &[(pk(9), 1, genesis(&[1, 2]))]);
-        let w1 = (pk(1), 100u64, put("k", &h('a')));
-        let w2 = (pk(2), 100u64, put("k", &h('b'))); // same ts, higher author pk -> wins
+        let base = fold(IndexState::default(), &[(id(0), pk(9), 1, genesis(&[1, 2]))]);
+        let w1: Ev = (id(1), pk(1), 100, put("k", &h('a')));
+        let w2: Ev = (id(2), pk(2), 100, put("k", &h('b'))); // same ts, higher author pk -> wins
         let ab = fold(base.clone(), &[w1.clone(), w2.clone()]);
         let ba = fold(base.clone(), &[w2, w1]);
         assert_eq!(ab, ba);
@@ -219,26 +227,47 @@ mod tests {
     }
 
     #[test]
+    fn full_ts_author_tie_breaks_on_event_id() {
+        // The pathological case: same node authors two Puts to one name in the SAME ms.
+        // (ts, author) fully tie; only the event id separates them. The winner must be
+        // content-determined (higher id), identical across fold orders — NOT the node's
+        // swappable fold-order tiebreak.
+        let base = fold(IndexState::default(), &[(id(0), pk(9), 1, genesis(&[1]))]);
+        let w1: Ev = (id(5), pk(1), 100, put("k", &h('a')));
+        let w2: Ev = (id(6), pk(1), 100, put("k", &h('b'))); // same ts+author, higher id -> wins
+        let ab = fold(base.clone(), &[w1.clone(), w2.clone()]);
+        let ba = fold(base.clone(), &[w2, w1]);
+        assert_eq!(ab, ba, "full (ts,author) tie must still converge");
+        assert_eq!(ab.resolve("k"), Some(h('b').as_str()), "higher event id wins the tie");
+    }
+
+    #[test]
     fn remove_is_lww_and_delete_readd_is_deterministic() {
-        let base = fold(IndexState::default(), &[(pk(9), 1, genesis(&[1]))]);
+        let base = fold(IndexState::default(), &[(id(0), pk(9), 1, genesis(&[1]))]);
         // put@10, remove@20, re-add@30 -> live with the re-add hash, any fold order
-        let p = (pk(1), 10u64, put("k", &h('a')));
-        let r = (pk(1), 20u64, Cmd::Remove { name: "k".to_string() });
-        let p2 = (pk(1), 30u64, put("k", &h('c')));
+        let p: Ev = (id(1), pk(1), 10, put("k", &h('a')));
+        let r: Ev = (id(2), pk(1), 20, Cmd::Remove { name: "k".to_string() });
+        let p2: Ev = (id(3), pk(1), 30, put("k", &h('c')));
         let forward = fold(base.clone(), &[p.clone(), r.clone(), p2.clone()]);
         let shuffled = fold(base.clone(), &[p2, r, p]);
         assert_eq!(forward, shuffled);
         assert_eq!(forward.resolve("k"), Some(h('c').as_str()));
         // a remove that wins leaves the name absent
-        let removed = fold(base, &[(pk(1), 10, put("k", &h('a'))), (pk(1), 20, Cmd::Remove { name: "k".to_string() })]);
+        let removed = fold(
+            base,
+            &[
+                (id(1), pk(1), 10, put("k", &h('a'))),
+                (id(2), pk(1), 20, Cmd::Remove { name: "k".to_string() }),
+            ],
+        );
         assert_eq!(removed.resolve("k"), None);
     }
 
     #[test]
     fn different_names_commute() {
-        let base = fold(IndexState::default(), &[(pk(9), 1, genesis(&[1]))]);
-        let a = (pk(1), 10u64, put("a", &h('a')));
-        let b = (pk(1), 11u64, put("b", &h('b')));
+        let base = fold(IndexState::default(), &[(id(0), pk(9), 1, genesis(&[1]))]);
+        let a: Ev = (id(1), pk(1), 10, put("a", &h('a')));
+        let b: Ev = (id(2), pk(1), 11, put("b", &h('b')));
         assert_eq!(fold(base.clone(), &[a.clone(), b.clone()]), fold(base, &[b, a]));
     }
 
@@ -246,7 +275,7 @@ mod tests {
     fn genesis_sorts_and_dedups_allow_list() {
         // members() projects state.allow_list; genesis canonicalizes it (sort + dedup)
         // so every node's folded state is byte-identical.
-        let s = fold(IndexState::default(), &[(pk(9), 1, genesis(&[2, 1, 2]))]);
+        let s = fold(IndexState::default(), &[(id(0), pk(9), 1, genesis(&[2, 1, 2]))]);
         assert_eq!(s.allow_list, vec![pk(1), pk(2)]);
     }
 }

@@ -50,8 +50,13 @@ pub struct Entry {
     pub tombstone: bool,
     /// Author's wall clock (ms) — the primary LWW key.
     pub ts: u64,
-    /// Authoring node pubkey — the LWW tiebreaker when `ts` ties.
+    /// Authoring node pubkey — the second LWW key (breaks a `ts` tie).
     pub author: PubKey,
+    /// Event id (32-byte hash) — the THIRD, final LWW key. Globally unique, so the
+    /// register is a total order over events: `(ts, author, id)` never ties, and the
+    /// winner is fully content-determined rather than leaning on the node's fold-order
+    /// tiebreak (which is a swappable substrate detail, not part of the SM contract).
+    pub id: Vec<u8>,
 }
 
 /// The index SM's typed state.
@@ -81,21 +86,24 @@ impl IndexState {
             .map(|e| e.hash.as_str())
     }
 
-    /// LWW upsert: write `slot` for `name` iff its `(ts, author)` strictly beats the
-    /// stored entry's (or the name is new). Keeps `entries` name-sorted. This is the
-    /// CRDT register — commutative + idempotent, so fold order cannot change the result.
-    pub fn lww_upsert(&mut self, name: String, hash: String, tombstone: bool, ts: u64, author: PubKey) {
+    /// LWW upsert: write `slot` for `name` iff its `(ts, author, id)` strictly beats the
+    /// stored entry's (or the name is new). Keeps `entries` name-sorted. `(ts, author, id)`
+    /// is a total order over events (id is globally unique), so the register is
+    /// commutative + idempotent — fold order cannot change the result, and a full
+    /// `(ts, author)` tie is still broken by content (id), not by the node's fold order.
+    pub fn lww_upsert(&mut self, name: String, hash: String, tombstone: bool, ts: u64, author: PubKey, id: Vec<u8>) {
         match self.entries.iter_mut().find(|e| e.name == name) {
             Some(e) => {
-                if (ts, author.as_slice()) > (e.ts, e.author.as_slice()) {
+                if (ts, author.as_slice(), id.as_slice()) > (e.ts, e.author.as_slice(), e.id.as_slice()) {
                     e.hash = hash;
                     e.tombstone = tombstone;
                     e.ts = ts;
                     e.author = author;
+                    e.id = id;
                 }
             }
             None => {
-                let entry = Entry { name, hash, tombstone, ts, author };
+                let entry = Entry { name, hash, tombstone, ts, author, id };
                 // insert keeping name-sorted order (canonical)
                 let pos = self
                     .entries
@@ -153,8 +161,8 @@ mod tests {
     #[test]
     fn state_round_trips_and_is_canonical() {
         let mut a = IndexState::default();
-        a.lww_upsert("b".to_string(), "1".repeat(64), false, 2, vec![0u8; 32]);
-        a.lww_upsert("a".to_string(), "2".repeat(64), false, 1, vec![0u8; 32]);
+        a.lww_upsert("b".to_string(), "1".repeat(64), false, 2, vec![0u8; 32], vec![1]);
+        a.lww_upsert("a".to_string(), "2".repeat(64), false, 1, vec![0u8; 32], vec![2]);
         // entries kept name-sorted regardless of insert order
         assert_eq!(a.entries[0].name, "a");
         assert_eq!(decode_state(&encode_state(&a)), Some(a.clone()));
