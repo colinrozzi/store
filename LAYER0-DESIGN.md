@@ -37,14 +37,21 @@ CONFLUENT, STRUCTURE-BLIND) and is composed into the node via
 
 ### 1.2 State + events
 ```
-state   = map<name (string), hash (sha256 hex string)>       # opaque bytes the SM owns
-payload = Put   { name: string, hash: string }               # hash is a Layer-2 SHA-256 address
-        | Remove{ name: string }                             # (tombstone; optional in v0)
+slot    = { value: hash | TOMBSTONE, ts: u64, author: pubkey }   # the LWW tiebreaker LIVES in state
+state   = map<name (string), slot>                               # opaque bytes the SM owns
+payload = Put   { name: string, hash: string }                   # hash is a Layer-2 SHA-256 address
+        | Remove{ name: string }
 ```
 - `initial-state()` → empty map.
 - **Genesis event** (folded via `apply`) carries the per-network config: the
   **write allow-list** (a set of authorized *node* pubkeys) — not a constructor arg,
   per the mesh contract.
+- **Why the slot carries `(ts, author)`** (mesh-dev correctness fix): admission-final
+  hands `apply` ALL concurrent writes; it must pick the winner from their **content**,
+  not fold position. A bare `map<name, hash>` has nothing to compare against, so it
+  degrades to "last-in-fold-order wins" — it converges only because the fold order is
+  deterministic, NOT because of the LWW intent. Storing `(ts, author)` per name makes
+  `apply` a true LWW register (below): idempotent, commutative, fold-order-independent.
 
 ### 1.3 validate — write-auth + admission (PURE, ancestry-relative)
 An event is `(id, author, timestamp, payload)` where `author` = the 32-byte
@@ -55,12 +62,16 @@ An event is `(id, author, timestamp, payload)` where `author` = the 32-byte
 
 `validate` never needs to see other concurrent events — conflicts converge in `apply`.
 
-### 1.4 apply — deterministic, CONFLUENT (LWW per name)
-- `Put{name,hash}`: set `state[name] = hash`. Concurrent Puts to **different** names
-  commute trivially. Concurrent Puts to the **same** name are resolved
-  **last-writer-wins by (timestamp, then author-pubkey) tiebreak** — a total, pure
-  order on the two events, so every node converges regardless of fold order.
-- `Remove{name}`: delete (LWW vs Puts by the same tiebreak).
+### 1.4 apply — deterministic, CONFLUENT (LWW register per name)
+`apply` compares the incoming event's `(ts, then author)` against the **stored** slot's
+`(ts, author)` and overwrites **only if strictly greater**:
+- `Put{name,hash}`: `state[name] = {hash, ts, author}` iff `(ts, author) > stored`.
+- `Remove{name}`: `state[name] = {TOMBSTONE, ts, author}` iff `(ts, author) > stored`
+  (a tombstone so a delete/re-add race is deterministic; `has`/reads treat TOMBSTONE as
+  absent). GC can drop a tombstone once no concurrent frontier can precede it.
+- Different names commute trivially; same-name concurrency resolves by the total
+  `(ts, author)` order — so the fold is genuinely order-independent (a real CRDT LWW
+  register), which is the confluence property the contract requires.
 
 `members(state)` → the allow-list pubkeys (feeds the mesh's witness-based finality;
 dormant in admission-final v0 but declared for interface-hash stability).
@@ -107,35 +118,45 @@ inherit vs. what we must add:
   path; `save_chain` is not wired). So after a cold boot the node has no local state
   until it re-syncs from peers — which **violates** "no network at read time."
 
-**RESOLVED (2026-09-16, theater-dev + manager): bounded node-state snapshot.**
+**RESOLVED (2026-09-16 — theater-dev + manager + mesh-dev): ship mesh persistence v0.**
 
-- **(D1-a) theater turnkey chain persistence — RULED OUT.** theater-dev, source-
-  definitive (`chain/mod.rs`): events are hashed, broadcast to subscribers, and
-  **DROPPED**; the runtime keeps only the rolling head hash and writes no chain file.
-  Durability is a deliberate *userland* capability, not a runtime feature. Even if it
-  existed, whole-chain replay re-folds the entire history → cold-boot time grows
-  **unbounded** with every Put (manager's scaling point). Dead on both counts.
-- **(D1-b) bounded node-state snapshot — CHOSEN.** mesh-dev's
-  `docs/DESIGN-persistence.md`: the system imports `theater:simple/store`, writes the
-  node blob on mutate, `node.resume(bytes)` on init. Size is bounded by the *snapshot*
-  (current folded state + frontier), not history length — the healthy long-run answer
-  for a store that accumulates entries indefinitely. mesh-dev owns this build.
+- **(a) theater turnkey chain persistence — RULED OUT.** theater-dev, source-definitive
+  (`chain/mod.rs`): events are hashed, broadcast to subscribers, and **DROPPED**; the
+  runtime keeps only the rolling head hash and writes no chain file. Durability is a
+  deliberate *userland* capability. It also inherits the unbounded re-fold cost — no
+  scaling escape, just less code.
+- **The scaling nuance (mesh-dev):** mesh is **full-retention** (v0.4 removed
+  compaction), so *both* chain-replay and "persist whole node-state + re-fold" grow
+  with the DAG. A *truly* bounded cold-boot needs a **folded-state snapshot** (index
+  map + frontier marker) — which reintroduces map/set-format-versioning +
+  checkpoint-certification discipline. So there are **three tiers**, sequenced:
 
-**NOT** a store-backed *index projection* (hydrate just `map<name,hash>` from
-`theater:simple/store` at init — theater-dev's practical inbox-mailbox pattern). That
-serves stale-but-local reads but drops the **DAG frontier**, so a cold-booted node
-could not reconcile/catch-up on rejoin — the trap the manager flagged. We need the
-*node-state* snapshot, not the projection, precisely because it retains the frontier.
+  **v0 — SHIP FIRST (mesh-dev owns; `docs/DESIGN-persistence.md`):** system imports
+  `theater:simple/store`, writes the **full node-state** blob on mutate,
+  `node.resume(bytes)` re-folds on init. Bounded-*enough* at store scale for a long
+  time (index = modest #names; re-fold is cheap until the log is genuinely large),
+  **map/set-safe** (the node-state blob is list/JSON, not a packr map/set snapshot),
+  and **reconcile-safe by construction** — v0 persists `self_head` + the finality
+  frontier, so `resume` restores the DAG frontier and a cold-booted box re-syncs missed
+  events on replug. **This already clears the acceptance bar.** ← **CHOSEN for v1 ship.**
 
-- **Open confirm (mesh-dev):** `node.resume(bytes)` must restore enough **DAG frontier**
-  that a cold-booted node reconciles with peers on rejoin (catches up on events missed
-  while down). If resume restores the frontier, D1-b is complete.
-- **Sequencing:** build the index SM now against the in-memory path; wire `resume()`
-  when D1-b lands. Warm-restart is safe today (chain replay); cold-boot is NOT until
-  D1-b lands.
+  **v1 — later, only if re-fold cost bites:** a bounded folded-state snapshot + retained
+  frontier + pruned history. This is where map/set-format-versioning +
+  checkpoint-certification + frontier-retention discipline become mandatory (a snapshot
+  that serves stale-local reads but can't reconcile = the trap). A deliberate partial
+  reversal of full-retention — not now.
+
+- **NOT** a store-backed *index projection* (hydrate just `map<name,hash>` from
+  `theater:simple/store` — theater-dev's inbox-mailbox pattern): it drops the DAG
+  frontier → can't reconcile on rejoin = the trap. Use the *node-state* snapshot.
+- **Frontier confirm — ANSWERED (mesh-dev): YES.** v0 `resume` restores `self_head` +
+  frontier, so reconcile-on-rejoin is guaranteed. D1 is closed in design.
+- **Sequencing:** build the index SM now against the in-memory path; `resume()` is an
+  additive wire-in when mesh-dev's ~4-ticket v0 build lands (mesh-dev heads-up on land).
 
 **ACCEPTANCE BAR (manager):** the store is production-ready not at "index SM green"
-but at **"cold-boot a box, serve the last-known index with the network unplugged."**
+but at **"cold-boot a box, serve the last-known index with the network unplugged, then
+reconcile on replug."**
 
 ---
 
@@ -186,10 +207,11 @@ index entry reintroduces the hash).
    boot-serve it locally (closes the http-pull boot-durability gap).
 
 ## 5. Open decisions
-- **D1** — cold-boot persistence: **RESOLVED → bounded mesh node-state snapshot (D1-b),
-  mesh-dev owns.** theater turnkey (a) ruled out (explicit-only + unbounded replay).
-  One confirm open: `node.resume(bytes)` restores the DAG frontier for reconcile.
-  Acceptance bar = cold-boot serves last-known index with the network unplugged.
+- **D1** — cold-boot persistence: **CLOSED → mesh persistence v0 (full node-state +
+  re-fold), mesh-dev owns; ~4-ticket build.** theater turnkey ruled out; v1 bounded
+  folded-snapshot deferred. Frontier/reconcile confirmed YES (v0 resume restores
+  `self_head` + frontier). Acceptance bar = cold-boot serves last-known index network-
+  unplugged, then reconciles on replug.
 - **D2** — content-transport actor: separate tcp actor, membership-seeded. **Agreed w/ mesh-dev.**
 - Digest = **SHA-256** (ratified; isolated in one fn, blake3-swappable).
 - Typed `my:store.*` surface: deferred past v1 (generic `my:mesh.*` first).
