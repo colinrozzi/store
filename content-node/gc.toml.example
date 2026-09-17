@@ -1,0 +1,11 @@
+name = "cn-gc"
+version = "0.1.0"
+package = "<content_node.wasm store path>"
+static_package = true
+initial_state = 'role=gc;seeds=alpha,beta,gamma;keep=alpha,gamma'
+[[handler]]
+type = "self"
+[[handler]]
+type = "store"
+base_path = "<data dir>"
+store_id = "cn-gc"

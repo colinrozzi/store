@@ -79,6 +79,8 @@ pack_types! {
             store-at-label: func(store-id: string, label: string, content: list<u8>) -> result<string, string>,
             get: func(store-id: string, content-ref: string) -> result<list<u8>, string>,
             get-by-label: func(store-id: string, label: string) -> result<option<string>, string>,
+            list-labels: func(store-id: string) -> result<list<string>, string>,
+            remove-label: func(store-id: string, label: string) -> result<_, string>,
         }
     }
     exports {
@@ -115,6 +117,10 @@ fn store_at_label(store_id: String, label: String, content: Vec<u8>) -> Result<S
 fn store_get_ref(store_id: String, content_ref: String) -> Result<Vec<u8>, String>;
 #[import(module = "theater:simple/store", name = "get-by-label")]
 fn store_get_by_label(store_id: String, label: String) -> Result<Option<String>, String>;
+#[import(module = "theater:simple/store", name = "list-labels")]
+fn store_list_labels(store_id: String) -> Result<Vec<String>, String>;
+#[import(module = "theater:simple/store", name = "remove-label")]
+fn store_remove_label(store_id: String, label: String) -> Result<(), String>;
 
 // ---- CAS helpers (SHA-256 owned; theater store is the opaque byte sink) ----
 fn sha256(bytes: &[u8]) -> Vec<u8> {
@@ -158,6 +164,10 @@ fn cas_get(store_id: &str, hash: &[u8]) -> Option<Vec<u8>> {
     let label = hex(hash);
     let theater_ref = store_get_by_label(store_id.to_string(), label).ok()??;
     store_get_ref(store_id.to_string(), theater_ref).ok()
+}
+/// Does the store still hold `hash_hex` (a label)?
+fn cas_has(store_id: &str, hash_hex: &str) -> bool {
+    store_get_by_label(store_id.to_string(), hash_hex.to_string()).ok().flatten().is_some()
 }
 
 // ---- wire framing ----
@@ -253,6 +263,48 @@ fn init(config: Value) -> Value {
         }
         log(format!("[primary] put {} + replicated to {} holder(s)", hex(&hash), holders.len()));
         NodeState::set(NodeState { store_id, client: false, expect: Vec::new(), conns });
+    } else if role == "gc" {
+        // GC-by-liveness sweep (the mechanism). Put a set of blobs, then drop every stored
+        // label whose hash is NOT in the LIVE SET — an object is live while some index entry
+        // points at its hash (the index is the GC root). Here the live set comes from config
+        // `keep` for a self-contained proof; v1b sources it from the store index's
+        // `current-state` (the real GC root). Quorum-aware liveness is a later refinement.
+        let seeds: Vec<String> = cfg_get(&cfg, "seeds").unwrap_or("").split(',').filter(|s| !s.is_empty()).map(|s| s.to_string()).collect();
+        let keep: Vec<String> = cfg_get(&cfg, "keep").unwrap_or("").split(',').filter(|s| !s.is_empty()).map(|s| s.to_string()).collect();
+        for s in &seeds {
+            let _ = cas_put(&store_id, s.as_bytes().to_vec());
+        }
+        let live: Vec<String> = keep.iter().map(|s| hex(&sha256(s.as_bytes()))).collect();
+        let labels = store_list_labels(store_id.clone()).unwrap_or_default();
+        let mut dropped = 0u32;
+        for label in &labels {
+            if !live.iter().any(|l| l == label) {
+                let _ = store_remove_label(store_id.clone(), label.clone());
+                dropped += 1;
+            }
+        }
+        log(format!("[gc] put {} blobs, live-set {}, swept {} labels, dropped {}", seeds.len(), live.len(), labels.len(), dropped));
+        // verify: every kept seed still held, every non-kept seed gone.
+        let mut ok = true;
+        let mut why = String::new();
+        for s in &seeds {
+            let hh = hex(&sha256(s.as_bytes()));
+            let want_live = keep.iter().any(|k| k == s);
+            let held = cas_has(&store_id, &hh);
+            if want_live != held {
+                ok = false;
+                why = format!("hash {} want_live={} but held={}", hh, want_live, held);
+                break;
+            }
+        }
+        if ok {
+            log("[gc] === GC-by-liveness verified: dead dropped, live kept -- PASS ===".to_string());
+            let _ = shutdown(Some(b"content-node-gc-passed".to_vec()));
+        } else {
+            log(format!("[gc] GC FAILED: {}", why));
+            let _ = shutdown(Some(format!("content-node-gc-failed: {}", why).into_bytes()));
+        }
+        NodeState::set(NodeState { store_id, client: false, expect: Vec::new(), conns: Vec::new() });
     } else {
         // server / holder: listen and serve REQ_GET + accept PUSH. Empty unless seeded.
         let listen = cfg_get(&cfg, "listen").unwrap_or("127.0.0.1:0").to_string();

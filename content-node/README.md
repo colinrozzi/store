@@ -29,6 +29,16 @@ receives a PUSH from the primary, then a separate client fetches that hash FROM 
 (not the primary) and verifies it -- so the holder served content it only obtained via
 replication.
 
+## v1a -- GREEN (GC-by-liveness sweep, live)
+
+An object is live while some index entry points at its hash (the index is the GC root).
+A `role=gc` node puts a set of blobs, then drops every stored label whose hash is NOT in
+the live set. Proven self-contained: put 3 blobs, live-set = 2 of them -> the 3rd label is
+dropped, the 2 live are kept (`content-node-gc-passed`). This is the reusable sweep; **v1b**
+sources the live set from the store index's `current-state` (the real GC root) instead of
+config, and quorum-aware liveness (a holder keeps index-live hashes; edges GC by LRU/TTL)
+layers on top.
+
 ## Wire protocol
 Self-framed, one connection carries many frames: `[op:u8][hash:32 raw sha256][len:u32 BE][payload]`.
 - `op 1` REQ_GET (empty payload) -- requester asks a holder for a hash
@@ -50,8 +60,8 @@ tiny string:
 Spawn holders/servers, wait for their ports, spawn the primary (replicates), then the
 client (fetches + self-verifies, exits with the pass marker). `expect` = `sha256(seed)`.
 
-## Next (v1, per the design)
-- membership-seeded peer candidates (`Session::members()` + allow-list) + registry addresses,
-- GC-by-liveness: drop local content not referenced by the live index (`current-state`) --
-  the index-live GC root; quorum-aware (a holder keeps index-live hashes; edges GC by LRU/TTL),
-- liveness-aware quorum (count only holders that answer) -- all content-layer-owned.
+## Next (v1b, per the design) -- the integration with Layer 1
+- source the GC live set + the peer/holder roster from a real store index node
+  (`current-state` -> live hashes; `Session::members()` + the registry for peers),
+- quorum-aware liveness (a holder keeps index-live hashes; edges GC by LRU/TTL; count only
+  holders that answer) -- all content-layer-owned. The v0a/v0b/v1a primitives compose under it.
