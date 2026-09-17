@@ -1,0 +1,13 @@
+name = "content-node-client"
+version = "0.1.0"
+package = "<content_node.wasm store path>"
+static_package = true
+initial_state = 'role=client;peer=127.0.0.1:9801;expect=1102d753ccaad02ec3c0bcc226e10570f9cbaaf932ec40a25b17a3981922b413'
+[[handler]]
+type = "self"
+[[handler]]
+type = "tcp"
+[[handler]]
+type = "store"
+base_path = "<data dir>"
+store_id = "cn-client"

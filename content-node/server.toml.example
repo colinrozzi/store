@@ -1,0 +1,13 @@
+name = "content-node-server"
+version = "0.1.0"
+package = "<content_node.wasm store path>"
+static_package = true
+initial_state = 'role=server;listen=127.0.0.1:9801;seed=hello from the store content layer'
+[[handler]]
+type = "self"
+[[handler]]
+type = "tcp"
+[[handler]]
+type = "store"
+base_path = "<data dir>"
+store_id = "cn-server"

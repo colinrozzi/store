@@ -1,0 +1,18 @@
+[package]
+name = "content-node"
+version = "0.1.0"
+edition = "2021"
+description = "The store's content-transport actor (D2 v0a): fetch-by-hash over the theater tcp handler, SHA-256-verified on receipt, over the local content-store CAS. Self-orchestrating proof: a server seeds+serves; a client fetches a hash it lacks, verifies, and shuts down with a pass marker."
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+packr-guest = { version = "0.24", features = ["derive"] }
+packr-abi = { version = "0.24", default-features = false }
+theater-guest = { git = "https://github.com/colinrozzi/theater", rev = "00b0bf93fe69a231463d3ba918fa435c5f2a517d" }
+sha2 = { version = "0.10", default-features = false }
+
+[profile.release]
+opt-level = "s"
+lto = true
