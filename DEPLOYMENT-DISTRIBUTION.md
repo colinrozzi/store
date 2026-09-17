@@ -25,6 +25,16 @@ cache), so the store node is a LIVE boot dependency -- fine for this cut.
 path so boot survives the store being unreachable. Design + a working `store` CLI increment
 already exist (`store-cli/`); it composes on top of #1.
 
+**MODE SELECTION (supervisor-dev, agreed).** These are per-environment modes, not stages:
+- **dev / light deploys → #1 http boot-pull.** Simple, one-hostname manifest change, no local
+  state. Integrity rests on the store node being honest + TLS to it (theater http-pulls by
+  hash but does NOT verify the returned bytes hash to `<sha256>` — verify-in-core is exactly
+  what Colin ruled out of the runtime).
+- **prod (the inbox) → #2 materialize.** `store materialize` fetches AND VERIFIES the SHA-256
+  before writing the local file, so it is the mode that actually delivers the content-addressed
+  guarantee — **verified AND network-free at boot**. This matches Colin's "core stays
+  local-bytes-only" + "verify lives in the store" ruling: prod = materialize.
+
 ## The resolution point (materialize, #2) — RECOMMENDATION
 
 **How a box turns a manifest package ref into store bytes.** Two options:
