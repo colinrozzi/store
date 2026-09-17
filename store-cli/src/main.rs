@@ -225,7 +225,8 @@ fn main() {
         "publish" => cmd_publish(rest),
         "materialize" => cmd_materialize(rest),
         "resolve" => cmd_resolve(rest),
-        _ => die("usage: store <init|publish|materialize|resolve> ...  (see --help in the source)"),
+        "gc" => cmd_gc(rest),
+        _ => die("usage: store <init|publish|materialize|resolve|gc> ...  (see the source header)"),
     }
 }
 
@@ -310,4 +311,39 @@ fn cmd_resolve(a: &[String]) {
     let name = need(a, "--name");
     let index = need(a, "--index");
     println!("{}", resolve(&index, &name).unwrap_or_else(|e| die(&e)));
+}
+
+/// GC-by-liveness (nix-gc-roots): drop on-box CAS files whose hash is referenced by NO live
+/// index entry. The index is the GC root -- content stays live while some name points at it.
+/// Safe: an immutable blob dropped here can be re-materialized if a future index entry needs it.
+fn cmd_gc(a: &[String]) {
+    let index = need(a, "--index");
+    let root = flag(a, "--root").unwrap_or_else(|| ".".into());
+    let mut idx = connect_index(&index);
+    let bytes = idx.current_state().unwrap_or_else(|e| die(&format!("current-state: {e}")));
+    let st = decode_state(&bytes).unwrap_or_else(|| die("decode index state"));
+    let live: Vec<String> = st.entries.iter().filter(|e| !e.tombstone).map(|e| e.hash.clone()).collect();
+    let dir = format!("{root}/packages");
+    let rd = fs::read_dir(&dir).unwrap_or_else(|e| die(&format!("read {dir}: {e}")));
+    let (mut kept, mut dropped) = (0u32, 0u32);
+    for ent in rd.flatten() {
+        let path = ent.path();
+        let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+        let hash = fname.strip_suffix(".wasm").unwrap_or(&fname);
+        if hash.len() != 64 || !hash.bytes().all(|c| c.is_ascii_hexdigit()) {
+            continue; // not a CAS object
+        }
+        if live.iter().any(|l| l == hash) {
+            kept += 1;
+        } else {
+            match fs::remove_file(&path) {
+                Ok(()) => {
+                    dropped += 1;
+                    println!("gc: dropped {hash}");
+                }
+                Err(e) => eprintln!("gc: remove {fname}: {e}"),
+            }
+        }
+    }
+    println!("gc: kept {kept}, dropped {dropped}  (live index roots = {})", live.len());
 }

@@ -32,3 +32,12 @@ publish -> resolve -> fetch+verify -> local-file flow works as a CLI.
 
 Next: increment 2 -- two-node (publish on the dev box, materialize on the VPS) over the
 cross-machine mesh (manager deploys; mesh-dev scoping the WAN mesh).
+
+## `store gc` -- GC-by-liveness (completes the nix-CAS)
+`store gc --index <peers> --root <dir>` -- drop on-box CAS files (`<dir>/packages/<sha256>.wasm`)
+whose hash is referenced by NO live index entry (the index is the GC root, nix-gc-roots style).
+Safe: an immutable blob dropped here re-materializes if a future index entry needs it. So
+`materialize` (populate the on-box content-addressed store) + `gc` (prune by liveness) make the
+CAS the fleet's durable, boot-safe primitive -- a box boots from local `/store/<hash>` files with
+NO store process running (theater reads the local path). Content = nix-CAS via materialize/gc;
+index = mesh (mutable); holders = replication. (Team-settled 2026-09-17: durable CONTENT not process.)
