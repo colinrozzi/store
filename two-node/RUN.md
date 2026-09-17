@@ -3,7 +3,7 @@
 Artifacts in this dir:
 - `mesh_store.wasm` — the store index composite (mesh@febee526 ⊕ node ⊕ store-sm). Anchor+edge run this SAME wasm; the anchor/edge difference is 100% manifest.
 - `content_node.wasm` — the content node (holds bytes, serves http `/by-hash/<sha>` + the binary content wire).
-- `store` — the store CLI (publish/init/resolve/materialize). **nix-dynamic** (needs the shared /nix store — runs on the dev-box host). It is only needed where you PUBLISH (the anchor/host) and where you MATERIALIZE (#2). For #1 the VPS needs no CLI (theater http-pulls). A static musl build for the VPS is a follow-up for #2.
+- `store` — the store CLI (init/publish/resolve/materialize). **static-musl** (fully static, no libc/nix deps) — scp it anywhere, incl. the VPS. Verified end-to-end (publish+materialize).
 - `seeds.txt` — ANCHOR/EDGE seeds + pubkeys.
 
 **theater:** built from `github:colinrozzi/theater?rev=00b0bf93fe69a231463d3ba918fa435c5f2a517d#default` (or your existing 00b0bf93 host theater). Spawn a node with: `theater spawn <manifest.toml>` (add `--log-level info` to watch). Run each node in its own process; it stays up (a listener).
@@ -104,7 +104,7 @@ type = "self"
 ```
 `theater spawn noop-http.toml` → theater http-pulls the wasm from the anchor store node (not GitHub) and instantiates noop. The holder logs `[http] 200 /by-hash/<SHA256>`.
 
-### #2 — materialize (verified, network-free at boot; needs the CLI on the VPS)
+### #2 — materialize (verified, network-free at boot; the static `store` runs on the VPS)
 ```sh
 ./store materialize --index 127.0.0.1:9700 --holder 127.0.0.1:9710 --name noop --root /var/lib/store
 #   -> writes /var/lib/store/packages/<SHA256>.wasm  (fetched + SHA-256 verified)
