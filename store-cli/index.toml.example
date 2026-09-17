@@ -1,0 +1,17 @@
+name="cli-index"
+version="0.1.0"
+package="<mesh_store.wasm>"
+static_package=true
+initial_state='{"node_seed":"storecli-index","listen_addr":"127.0.0.1:9781"}'
+[[handler]]
+type="self"
+[[handler]]
+type="tcp"
+[[handler]]
+type="timer"
+[[handler]]
+type="message-server"
+[[handler]]
+type="store"
+base_path="<dir>"
+store_id="cli-index"
