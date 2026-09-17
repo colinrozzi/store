@@ -102,3 +102,39 @@ durable across both nodes; THEN flip boot to resolve from the store.
   manifests → sub-manifests) as the input to `store publish`; how to hook it in.
 - **mesh-dev:** the two-node cross-machine mesh (index network spanning dev box + VPS).
 - Durability RF across two nodes; anchor vs edge roles per box (from the content roster).
+
+---
+
+## 3-node HA (productionization) — topology + what it delivers
+
+The distribution network productionizes into 3 nodes. HA differs by layer:
+
+- **Content (immutable):** durability + read availability. Replicate each blob to `RF` holders
+  → survive `RF-1` machine losses; any holder serves it. Scales with nodes.
+- **Index reads (mutable):** read availability. `current-state` folds on any node with a synced
+  index; N persist-ON replicas → reads survive N-1 node losses.
+- **Index writes (mutable):** NOT helped by node count. Single-writer (the anchor's key is the
+  sole allow-listed author) + admission-final ⇒ the anchor progresses alone; adding nodes adds
+  no write-consensus. Anchor machine loss halts writes until a writer failover.
+
+**Recommended topology:** 1 **ANCHOR** (sole index writer, persist ON, content holder, publisher)
++ 2 **REPLICAS** (persist ON incl. index so reads survive anchor loss; content holders). Dials =
+**full mesh** (all-to-all), not hub-spoke (hub-spoke makes the anchor a gossip SPOF); mesh-dev's
+self-healing dial re-dials dropped peers. **RF = 3** for the first cut (replicate every published
+blob to all 3), drop to 2 later if storage matters.
+
+**Write-HA** is NOT new SM code: the index SM already supports a **multi-writer allow-list + LWW
+convergence** (concurrent writes converge by `(ts, author, id)`). So write-HA = allow-list ≥2
+writer nodes at genesis; the SM converges concurrent/failover writes. v1 keeps single-writer
+(clean central authority); enable write-HA by allow-listing a standby when wanted — an
+operational/genesis choice. Only real subtlety: publisher coordination (which writer it talks to).
+
+**Physical-machine caveat:** HA is bounded by physical boxes, not node count. 3 nodes on 2 boxes →
+survives 1 box loss only (and only if content is replicated across both). A 3rd physical machine →
+2-box-loss tolerance. The content RF must span distinct machines.
+
+**Node service manifests (store-dev):** 3× {index node (persist ON) + content holder (persist ON,
+serves http)}, full-mesh self-healing dials, anchor = writer — as supervisor roster entries. Shape
+ready; concrete manifests finalize once the transport (wireguard) addresses + mesh-dev's persistent-
+dial config format land. Division: supervisor-dev hosts them (crash-restart + reboot-durable);
+mesh-dev's self-healing dial + manager's durable transport (wireguard) replace the ad-hoc ssh -R.
