@@ -1,0 +1,12 @@
+[package]
+name = "d1-harness"
+version = "0.1.0"
+edition = "2021"
+[[bin]]
+name = "d1-harness"
+path = "src/main.rs"
+
+[dependencies]
+# mesh-testkit from your mesh checkout -- at mesh@d6f4f529 to actually pass (resume + store I/O).
+mesh-testkit = { path = "../../../mesh/tests/testkit" }
+store-protocol = { path = "../store-protocol" }
