@@ -66,3 +66,11 @@ independent publishing.
 - **mesh-dev:** self-healing dial (persistent + multi-peer re-dial) — prerequisite for the mesh HA.
 - **manager:** the wireguard mesh (durable transport) replacing the ad-hoc ssh -R.
 - **supervisor-dev:** host these as supervisor roster entries (crash-restart + reboot-durable).
+
+## Deploy convention (supervisor-dev, adopted)
+Per box, under `/etc/store/`: the WG-filled `peerN-index.toml` + `peerN-holder.toml`, the two node
+wasms (`mesh_store.wasm`, `content_node.wasm`), and the static `store` CLI. The manifest `package`
+fields point at `/etc/store/<wasm>` (concrete above); persistent data lives at `/var/lib/store-peerN/`.
+supervisor-dev's `deploy/ha-3node/peerN-roster.json` hosts that peer's {index, holder} (crash-restart,
+breaker bumped to 10/60s, keep_chain) via the `store-supervisor@` systemd unit (Restart=always +
+boot-enable = reboot-durable). Only `<PEERn_WG_IP>` remains to fill (from the manager's wireguard mesh).
