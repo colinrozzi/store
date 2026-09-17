@@ -274,7 +274,21 @@ fn init(config: Value) -> Value {
         for s in &seeds {
             let _ = cas_put(&store_id, s.as_bytes().to_vec());
         }
-        let live: Vec<String> = keep.iter().map(|s| hex(&sha256(s.as_bytes()))).collect();
+        // The LIVE SET (GC root). v1b: `live=<comma-sep hex hashes>` sourced from a real store
+        // index's current-state (the driver reads it). v1a fallback: compute from `keep` texts.
+        let live: Vec<String> = match cfg_get(&cfg, "live") {
+            Some(l) if !l.is_empty() => l.split(',').filter(|s| !s.is_empty()).map(|s| s.to_string()).collect(),
+            _ => keep.iter().map(|s| hex(&sha256(s.as_bytes()))).collect(),
+        };
+        // For verification we treat a seed as "should stay" iff its hash is in the live set.
+        let keep: Vec<String> = seeds
+            .iter()
+            .filter(|s| {
+                let h = hex(&sha256(s.as_bytes()));
+                live.iter().any(|l| l == &h)
+            })
+            .cloned()
+            .collect();
         let labels = store_list_labels(store_id.clone()).unwrap_or_default();
         let mut dropped = 0u32;
         for label in &labels {
