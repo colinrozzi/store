@@ -39,6 +39,20 @@ sources the live set from the store index's `current-state` (the real GC root) i
 config, and quorum-aware liveness (a holder keeps index-live hashes; edges GC by LRU/TTL)
 layers on top.
 
+## HTTP boot-pull -- GREEN (serve wasm by hash; closes the boot gap with no new resolution code)
+
+theater already fetches http `package` URLs -- the boot gap was only that the URL pointed at
+GitHub. A store node's server also answers a minimal HTTP/1.1 `GET /by-hash/<sha256>` with the
+wasm bytes from its content store (same tcp handler + port; `GET ` is disambiguated from the
+binary content ops). So a consumer manifest sets `package = http://<store-node>/by-hash/<hash>`
+and theater's existing http-pull boot-serves it from the ON-BOX store instead of GitHub.
+
+Proven: published a 205KB wasm to a store node; `curl .../by-hash/<h>` -> 200, byte-exact; a
+consumer manifest with `package=http://<node>/by-hash/<h>` -> theater resolved + fetched + spawned
+it (`[http] 200`, `actor.init` ran). Note (by design): theater re-fetches every spawn (no cache),
+so the store node is a LIVE boot dependency; the `materialize`/local-cache path is the
+boot-if-store-down upgrade.
+
 ## Wire protocol
 Self-framed, one connection carries many frames: `[op:u8][hash:32 raw sha256][len:u32 BE][payload]`.
 - `op 1` REQ_GET (empty payload) -- requester asks a holder for a hash

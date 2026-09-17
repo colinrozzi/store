@@ -199,6 +199,46 @@ fn take_frames(buf: &mut Vec<u8>) -> Vec<(u8, Vec<u8>, Vec<u8>)> {
     out
 }
 
+// ---- HTTP serving (the boot-pull path) ----
+// theater already fetches http package URLs; a store node that answers
+// `GET /by-hash/<sha256>` with the wasm closes the boot gap with no new resolution code --
+// a consumer manifest just sets package = http://<store-node>/by-hash/<hash>. We speak a
+// minimal HTTP/1.1 (Connection: close) over the same tcp handler, on the same listen port.
+
+fn find_sub(hay: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || hay.len() < needle.len() {
+        return None;
+    }
+    (0..=hay.len() - needle.len()).find(|&i| &hay[i..i + needle.len()] == needle)
+}
+/// Parse the raw 32-byte hash out of `GET /by-hash/<64-hex> HTTP/1.1`.
+fn http_get_hash(req: &[u8]) -> Option<Vec<u8>> {
+    // request line ends at first \r\n (or the whole slice if headers were trimmed)
+    let line_end = find_sub(req, b"\r\n").unwrap_or(req.len());
+    let line = &req[..line_end];
+    let mut it = line.split(|&b| b == b' ');
+    let _method = it.next()?; // GET
+    let path = it.next()?; // /by-hash/<hex>
+    let prefix = b"/by-hash/";
+    if path.len() < prefix.len() || &path[..prefix.len()] != prefix {
+        return None;
+    }
+    let hex = core::str::from_utf8(&path[prefix.len()..]).ok()?;
+    unhex(hex).filter(|h| h.len() == 32)
+}
+fn http_ok(bytes: &[u8]) -> Vec<u8> {
+    let head = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/wasm\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        bytes.len()
+    );
+    let mut out = head.into_bytes();
+    out.extend_from_slice(bytes);
+    out
+}
+fn http_status(code_reason: &str) -> Vec<u8> {
+    format!("HTTP/1.1 {}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", code_reason).into_bytes()
+}
+
 // ---- config: a tiny `k=v;k=v` string (we own the manifest initial_state) ----
 fn cfg_get<'a>(cfg: &'a str, key: &str) -> Option<&'a str> {
     cfg.split(';')
@@ -350,17 +390,46 @@ fn handle_connection(conn_id: String) -> Value {
 
 #[export(name = "theater:simple/tcp-client.on-data")]
 fn on_data(conn_id: String, data: Vec<u8>) -> Value {
-    // Reassemble frames for this connection, then act on each (host calls outside the cell).
-    let (frames, store_id, client, expect) = NodeState::with_mut(|s| {
-        let frames = match s.conns.iter_mut().find(|c| c.id == conn_id) {
+    // Append, then decide: an HTTP GET (boot-pull path) or the binary content protocol.
+    let (http_req, frames, store_id, client, expect) = NodeState::with_mut(|s| {
+        match s.conns.iter_mut().find(|c| c.id == conn_id) {
             Some(c) => {
                 c.buf.extend_from_slice(&data);
-                take_frames(&mut c.buf)
+                if c.buf.starts_with(b"GET ") {
+                    // wait for the full request head (\r\n\r\n) then take it
+                    match find_sub(&c.buf, b"\r\n\r\n") {
+                        Some(pos) => {
+                            let req = c.buf[..pos].to_vec();
+                            c.buf.clear();
+                            (Some(req), Vec::new(), s.store_id.clone(), s.client, s.expect.clone())
+                        }
+                        None => (None, Vec::new(), s.store_id.clone(), s.client, s.expect.clone()),
+                    }
+                } else {
+                    let frames = take_frames(&mut c.buf);
+                    (None, frames, s.store_id.clone(), s.client, s.expect.clone())
+                }
             }
-            None => Vec::new(),
-        };
-        (frames, s.store_id.clone(), s.client, s.expect.clone())
+            None => (None, Vec::new(), String::new(), false, Vec::new()),
+        }
     });
+
+    // HTTP GET /by-hash/<sha256> -> serve the wasm bytes from the content store, then close.
+    if let Some(req) = http_req {
+        let resp = match http_get_hash(&req).and_then(|h| cas_get(&store_id, &h).map(|b| (h, b))) {
+            Some((h, bytes)) => {
+                log(format!("[http] 200 /by-hash/{} ({} bytes)", hex(&h), bytes.len()));
+                http_ok(&bytes)
+            }
+            None => {
+                log("[http] 404 (bad path or hash not held)".to_string());
+                http_status("404 Not Found")
+            }
+        };
+        let _ = tcp_send(conn_id.clone(), resp);
+        let _ = tcp_close(conn_id);
+        return ok_unit();
+    }
 
     for (op, hash, payload) in frames {
         match op {

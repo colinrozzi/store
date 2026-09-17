@@ -10,7 +10,22 @@ Composes what's already live-proven: the mutable index (`name→hash`), the cont
 proof (`first-consumer-proof/`) already demonstrated *resolve-name→fetch-by-hash→verify*
 end to end — this productionizes it into a CLI + a two-node flow.
 
-## The resolution point (the crux) — RECOMMENDATION
+## PRIORITY (Colin's call, 2026-09-17): HTTP boot-pull FIRST
+
+**#1 — HTTP boot-pull (GREEN).** theater already fetches http `package` URLs; the boot gap was
+only that the URL pointed at GitHub. A store node serves `GET /by-hash/<sha256>` -> the wasm
+bytes (see `content-node/` HTTP boot-pull), so a consumer manifest sets `package =
+http://<store-node>/by-hash/<hash>` and theater's existing http-pull boot-serves it from the
+on-box store -- **zero new resolution code**, manifest change is one hostname. Proven locally:
+published a wasm to a store node, a consumer manifest pointing at its http endpoint spawned +
+ran (theater fetched `[http] 200`, `actor.init`). Caveat: theater re-fetches every spawn (no
+cache), so the store node is a LIVE boot dependency -- fine for this cut.
+
+**#2 — materialize (below).** The boot-if-store-down upgrade: write the wasm to a local pinned
+path so boot survives the store being unreachable. Design + a working `store` CLI increment
+already exist (`store-cli/`); it composes on top of #1.
+
+## The resolution point (materialize, #2) — RECOMMENDATION
 
 **How a box turns a manifest package ref into store bytes.** Two options:
 
