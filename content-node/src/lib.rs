@@ -33,9 +33,11 @@ use theater_guest::State;
 #[cfg(not(test))]
 packr_guest::setup_guest!();
 
-const OP_REQ_GET: u8 = 1;
-const OP_BLOB: u8 = 2;
-const OP_MISS: u8 = 3;
+const OP_REQ_GET: u8 = 1; // requester -> holder: "send me hash"
+const OP_BLOB: u8 = 2; // holder -> requester: the bytes
+const OP_MISS: u8 = 3; // holder -> requester: I don't hold it
+const OP_PUSH: u8 = 4; // primary -> holder: replicate these bytes (durability)
+const OP_ACK: u8 = 5; // holder -> primary: stored (replicated)
 const HDR: usize = 1 + 32 + 4; // op + hash + len
 
 /// A live connection's reassembly buffer (tcp is a stream; frames span `on-data` chunks).
@@ -230,12 +232,36 @@ fn init(config: Value) -> Value {
             expect,
             conns: vec![Conn { id: conn, buf: Vec::new() }],
         });
-    } else {
+    } else if role == "primary" {
+        // Put the seed locally, then REPLICATE it (PUSH) to a fixed roster of holders.
+        // "replicate to a quorum needs no coordination" — content is immutable, just copy.
         let seed = cfg_get(&cfg, "seed").unwrap_or("").as_bytes().to_vec();
+        let hash = cas_put(&store_id, seed.clone());
+        let holders: Vec<&str> = cfg_get(&cfg, "holders").unwrap_or("").split(',').filter(|s| !s.is_empty()).collect();
+        let mut conns = Vec::new();
+        for addr in &holders {
+            match tcp_connect(addr.to_string()) {
+                Ok(conn) => {
+                    let _ = tcp_activate(conn.clone());
+                    let _ = tcp_set_active(conn.clone(), "active".to_string());
+                    let _ = tcp_send(conn.clone(), frame(OP_PUSH, &hash, &seed));
+                    log(format!("[primary] PUSH {} -> {}", hex(&hash), addr));
+                    conns.push(Conn { id: conn, buf: Vec::new() });
+                }
+                Err(e) => log(format!("[primary] connect {} failed: {}", addr, e)),
+            }
+        }
+        log(format!("[primary] put {} + replicated to {} holder(s)", hex(&hash), holders.len()));
+        NodeState::set(NodeState { store_id, client: false, expect: Vec::new(), conns });
+    } else {
+        // server / holder: listen and serve REQ_GET + accept PUSH. Empty unless seeded.
         let listen = cfg_get(&cfg, "listen").unwrap_or("127.0.0.1:0").to_string();
-        let hash = cas_put(&store_id, seed);
+        let held = match cfg_get(&cfg, "seed") {
+            Some(s) if !s.is_empty() => hex(&cas_put(&store_id, s.as_bytes().to_vec())),
+            _ => "(empty)".to_string(),
+        };
         match tcp_listen(listen.clone()) {
-            Ok(id) => log(format!("[server] listening {} (id={}), holds {}", listen, id, hex(&hash))),
+            Ok(id) => log(format!("[server] listening {} (id={}), holds {}", listen, id, held)),
             Err(e) => return err(&format!("listen {}: {}", listen, e)),
         }
         NodeState::set(NodeState { store_id, client: false, expect: Vec::new(), conns: Vec::new() });
@@ -271,30 +297,43 @@ fn on_data(conn_id: String, data: Vec<u8>) -> Value {
     });
 
     for (op, hash, payload) in frames {
-        if !client && op == OP_REQ_GET {
-            // server: answer with the bytes, or MISS
-            match cas_get(&store_id, &hash) {
+        match op {
+            // holder serving a fetch: answer with the bytes, or MISS
+            OP_REQ_GET => match cas_get(&store_id, &hash) {
                 Some(bytes) => {
                     let _ = tcp_send(conn_id.clone(), frame(OP_BLOB, &hash, &bytes));
-                    log(format!("[server] served BLOB {} ({} bytes)", hex(&hash), bytes.len()));
+                    log(format!("[holder] served BLOB {} ({} bytes)", hex(&hash), bytes.len()));
                 }
                 None => {
                     let _ = tcp_send(conn_id.clone(), frame(OP_MISS, &hash, &[]));
                 }
+            },
+            // holder receiving a replicated blob: verify SHA-256, store, ACK
+            OP_PUSH => {
+                if sha256(&payload) == hash {
+                    let _ = cas_put(&store_id, payload.clone());
+                    let _ = tcp_send(conn_id.clone(), frame(OP_ACK, &hash, &[]));
+                    log(format!("[holder] stored PUSH {} ({} bytes), ACKed", hex(&hash), payload.len()));
+                } else {
+                    log(format!("[holder] PUSH {} hash mismatch — dropped", hex(&hash)));
+                }
             }
-        } else if client && op == OP_BLOB {
-            // client: the whole point — re-verify the SHA-256 on receipt.
-            let actual = sha256(&payload);
-            if actual != hash {
-                return finish(false, &format!("frame hash != content hash ({} vs {})", hex(&hash), hex(&actual)));
+            // primary hearing that a holder stored the replica
+            OP_ACK => log(format!("[primary] ACK {} from holder", hex(&hash))),
+            // requester verifying a fetched blob (the whole point): re-hash on receipt
+            OP_BLOB if client => {
+                let actual = sha256(&payload);
+                if actual != hash {
+                    return finish(false, &format!("frame hash != content hash ({} vs {})", hex(&hash), hex(&actual)));
+                }
+                if hash != expect {
+                    return finish(false, &format!("got {} but expected {}", hex(&hash), hex(&expect)));
+                }
+                log(format!("[client] BLOB {} verified ({} bytes)", hex(&hash), payload.len()));
+                return finish(true, "");
             }
-            if hash != expect {
-                return finish(false, &format!("got {} but expected {}", hex(&hash), hex(&expect)));
-            }
-            log(format!("[client] BLOB {} verified ({} bytes)", hex(&hash), payload.len()));
-            return finish(true, "");
-        } else if client && op == OP_MISS {
-            return finish(false, "peer MISS: does not hold the hash");
+            OP_MISS if client => return finish(false, "peer MISS: does not hold the hash"),
+            _ => {}
         }
     }
     ok_unit()
