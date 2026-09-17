@@ -19,9 +19,14 @@ boot1 authored pkg/live; killed the node; restart from the same data-dir with th
 unplugged -> boot2 logged "resumed from persisted node-state" and current-state STILL had
 pkg/live. Cold-boot serves the last-known index locally -- the production acceptance bar is MET.
 
-NOTE: d6f4f529's `mesh.lib.mkComposite` is missing the `node.resume` link, so the flake-
-composed artifact fails to instantiate ("unknown import: node::resume"). Compose MANUALLY via
-`compose-manual.sh` (15 links incl node.resume) until mesh-dev fixes the flake helper (reported).
+Verified again via the standard `mesh.lib.mkComposite` off **mesh@febee526** (15 links,
+resume included) -- D1 passes on the clean flake path too.
+
+NOTE (history): on mesh@d6f4f529 the flake `mkComposite` was missing the `node.resume` link,
+so the composite failed to instantiate ("unknown import: node::resume"). Fixed by mesh-dev @
+febee526. `compose-manual.sh` (a manual 15-link compose) is retained only for building against
+d6f4f529; on mesh >= febee526 just use `mesh.lib.mkComposite`.
 
 ## Run
-`COMPOSITE=<mesh_store.wasm built from mesh@d6f4f529> cargo run --release`
+Build the composite off **mesh >= febee526** (`mesh.lib.mkComposite { name="store"; sm; }`), then
+`COMPOSITE=<mesh_store.wasm> cargo run --release`
