@@ -13,12 +13,15 @@ local-serve half end to end:
 Since there are no peers, the Put can only survive if the node **persisted + resumed** its
 state -- which is mesh-dev's D1-b (`node.resume` + mesh-system store I/O, @ d6f4f529).
 
-## Status
-- On mesh@6ce46de3 (pre-D1-b): correctly reports **D1 NOT YET** -- after restart the index
-  is empty (re-genesis); persistence is off. This validates the harness.
-- On mesh@d6f4f529 (D1-b): expected **D1 PASSED** -- the Put survives, `resumed from
-  persisted node-state` in the log. Gated on d6f4f529 reaching origin/main + bumping the
-  mesh input. **No SM/driver change needed** -- just the pinned store handler (already here).
+## Status -- D1 PASSED (2026-09-17, mesh@d6f4f529)
+
+boot1 authored pkg/live; killed the node; restart from the same data-dir with the network
+unplugged -> boot2 logged "resumed from persisted node-state" and current-state STILL had
+pkg/live. Cold-boot serves the last-known index locally -- the production acceptance bar is MET.
+
+NOTE: d6f4f529's `mesh.lib.mkComposite` is missing the `node.resume` link, so the flake-
+composed artifact fails to instantiate ("unknown import: node::resume"). Compose MANUALLY via
+`compose-manual.sh` (15 links incl node.resume) until mesh-dev fixes the flake helper (reported).
 
 ## Run
 `COMPOSITE=<mesh_store.wasm built from mesh@d6f4f529> cargo run --release`
