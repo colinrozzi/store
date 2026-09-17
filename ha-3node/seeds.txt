@@ -1,0 +1,7 @@
+# 3-node HA peer identities (ed25519 pubkey = ed25519(sha256(seed)))
+PEER1_SEED=store-peer-1   PEER1_PUBKEY=9c3ec3e2b6b205e7cc1138fe5b55244a5a627cf4b2c08371e518a52ca398ef50
+PEER2_SEED=store-peer-2   PEER2_PUBKEY=b1a19a46c1cf08c6c43fd4d4608ba05334e94d0cdf4087f7aacaaa88c61f5c16
+PEER3_SEED=store-peer-3   PEER3_PUBKEY=06214c3472f6d8b2c8813b78f98e01bffd291c3d12d12bbf6338f36fd74b6369
+# Genesis allow_list:
+#   single-writer (v1, simple): [PEER1_PUBKEY]        -> store init --node-seed store-peer-1
+#   multi-writer  (write-HA):   [all 3 pubkeys]       -> store init with all 3 (needs a --allow flag; see README)

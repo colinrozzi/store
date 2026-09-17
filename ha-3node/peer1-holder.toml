@@ -1,0 +1,14 @@
+# HA peer 1 -- CONTENT holder (content-node, persist ON, serves http /by-hash + the content wire).
+name = "store-peer1-holder"
+version = "0.1.0"
+package = "<abs path>/content_node.wasm"
+static_package = true
+initial_state = 'role=server;listen=<PEER1_WG_IP>:9710'
+[[handler]]
+type = "self"
+[[handler]]
+type = "tcp"
+[[handler]]
+type = "store"
+base_path = "/var/lib/store-peer1/content"
+store_id = "holder"

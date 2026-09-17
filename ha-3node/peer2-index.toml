@@ -1,0 +1,18 @@
+# HA peer 2 -- INDEX node (mesh_store composite, persist ON, full-mesh self-healing dial).
+name = "store-peer2-index"
+version = "0.1.0"
+package = "<abs path>/mesh_store.wasm"
+static_package = true
+initial_state = '{"node_seed":"store-peer-2","listen_addr":"<PEER2_WG_IP>:9700","dial":[{"pubkey":"9c3ec3e2b6b205e7cc1138fe5b55244a5a627cf4b2c08371e518a52ca398ef50","address":"<PEER1_WG_IP>:9700"},{"pubkey":"06214c3472f6d8b2c8813b78f98e01bffd291c3d12d12bbf6338f36fd74b6369","address":"<PEER3_WG_IP>:9700"}]}'
+[[handler]]
+type = "self"
+[[handler]]
+type = "tcp"
+[[handler]]
+type = "timer"
+[[handler]]
+type = "message-server"
+[[handler]]
+type = "store"
+base_path = "/var/lib/store-peer2/index"
+store_id = "store"

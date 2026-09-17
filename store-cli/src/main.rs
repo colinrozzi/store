@@ -106,8 +106,22 @@ impl Index {
     }
 }
 
-fn resolve(index_addr: &str, name: &str) -> Result<String, String> {
-    let mut idx = Index::connect(index_addr).map_err(|e| format!("connect index {index_addr}: {e}"))?;
+/// Connect to the FIRST live index endpoint in a comma-separated list -- automatic
+/// publisher/reader failover across HA peers, no leader election (the LWW register + a
+/// multi-writer allow-list make writing via any live peer safe).
+fn connect_index(index_flag: &str) -> Index {
+    let addrs: Vec<&str> = index_flag.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+    for a in &addrs {
+        match Index::connect(a) {
+            Ok(idx) => return idx,
+            Err(e) => eprintln!("store: index {a} unreachable ({e}); trying next peer..."),
+        }
+    }
+    die(&format!("no live index endpoint among: {index_flag}"));
+}
+
+fn resolve(index_flag: &str, name: &str) -> Result<String, String> {
+    let mut idx = connect_index(index_flag);
     let bytes = idx.current_state().map_err(|e| format!("current-state: {e}"))?;
     let st = decode_state(&bytes).ok_or("decode index state")?;
     st.entries
@@ -215,14 +229,22 @@ fn main() {
     }
 }
 
-/// Author the genesis event: allow-list the index node's own pubkey (it signs authored writes).
+/// Author the genesis event: allow-list the writer node(s). `--node-seed S` = single-writer
+/// (allow-list [pubkey(S)]); `--allow s1,s2,s3` = multi-writer (write-HA -- any listed peer may
+/// author; the LWW register converges concurrent/failover writes with no consensus).
 fn cmd_init(a: &[String]) {
     let index = need(a, "--index");
-    let node_seed = need(a, "--node-seed");
-    let allow = vec![node_pubkey(&node_seed)];
-    let mut idx = Index::connect(&index).unwrap_or_else(|e| die(&format!("connect index: {e}")));
-    idx.submit(&encode(&Cmd::Genesis { allow_list: allow })).unwrap_or_else(|e| die(&format!("genesis: {e}")));
-    println!("initialized index {index}: allow-listed node {}", &node_pubkey(&node_seed).iter().take(4).map(|b| format!("{:02x}", b)).collect::<String>());
+    let allow: Vec<Vec<u8>> = match flag(a, "--allow") {
+        Some(seeds) => seeds.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).map(node_pubkey).collect(),
+        None => vec![node_pubkey(&need(a, "--node-seed"))],
+    };
+    if allow.is_empty() {
+        die("init needs --node-seed <S> or --allow <s1,s2,...>");
+    }
+    let mut idx = connect_index(&index);
+    idx.submit(&encode(&Cmd::Genesis { allow_list: allow.clone() })).unwrap_or_else(|e| die(&format!("genesis: {e}")));
+    let short: Vec<String> = allow.iter().map(|pk| pk.iter().take(4).map(|b| format!("{:02x}", b)).collect()).collect();
+    println!("initialized index: allow-listed {} writer node(s): {}", allow.len(), short.join(", "));
 }
 
 /// Central authorized publish: PUSH the wasm to a content holder + author name->hash on the index.
@@ -234,10 +256,21 @@ fn cmd_publish(a: &[String]) {
     let bytes = fs::read(&wasm).unwrap_or_else(|e| die(&format!("read {wasm}: {e}")));
     let h = sha256(&bytes);
     let hh = hex(&h);
-    content_push(&holder, &h, &bytes).unwrap_or_else(|e| die(&e));
-    let mut idx = Index::connect(&index).unwrap_or_else(|e| die(&format!("connect index: {e}")));
+    // Replicate to EVERY holder in the roster (RF = #holders) -- content durability.
+    let holders: Vec<&str> = holder.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+    let mut replicated = 0;
+    for hd in &holders {
+        match content_push(hd, &h, &bytes) {
+            Ok(()) => replicated += 1,
+            Err(e) => eprintln!("store: push to holder {hd} failed ({e})"),
+        }
+    }
+    if replicated == 0 {
+        die("published to NO holder (all pushes failed)");
+    }
+    let mut idx = connect_index(&index);
     idx.submit(&encode(&Cmd::Put { name: name.clone(), hash: hh.clone() })).unwrap_or_else(|e| die(&format!("put: {e}")));
-    println!("published {} ({} bytes) -> {}  (holder {}, index {})", name, bytes.len(), hh, holder, index);
+    println!("published {} ({} bytes) -> {}  (replicated to {}/{} holders, index {})", name, bytes.len(), hh, replicated, holders.len(), index);
 }
 
 /// Materialize a name to a content-addressed local path: resolve via index, local-cache or
@@ -257,7 +290,12 @@ fn cmd_materialize(a: &[String]) {
             return;
         }
     }
-    let bytes = content_fetch(&holder, &hash).unwrap_or_else(|e| die(&format!("fetch: {e}")));
+    // Fetch from the FIRST live holder that serves the hash (read failover across replicas).
+    let holders: Vec<&str> = holder.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+    let bytes = holders
+        .iter()
+        .find_map(|hd| content_fetch(hd, &hash).ok())
+        .unwrap_or_else(|| die(&format!("fetch {hh}: no holder among {} served it", holders.len())));
     if let Some(parent) = std::path::Path::new(&out).parent() {
         fs::create_dir_all(parent).ok();
     }
