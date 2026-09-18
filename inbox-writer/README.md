@@ -23,10 +23,25 @@ manifest change**. Deploy trigger = in-process `supervisor restart <acceptor>` (
 seed `store-inbox-writer` -> pubkey `d03bb0f97b56786cf870c33644fbc4300d458bbb0b514e39b6e730de401bc9d0`
 (verify: `./store pubkey --seed store-inbox-writer`). This is the pubkey to **allow-list** as a writer.
 
+## Transport = encrypted static tunnel (b', Colin id=77) — NOT wireguard
+`store-tunnel` (this dir, and `../store-tunnel/`) is the static TLS proxy. Curl it into the running
+container (like the supervisor binary — no recreate). The node dials LOCAL tunnel endpoints; the client
+tunnel carries each to a cluster peer over pinned TLS. The cluster mesh ports stay private on the VPS.
+```sh
+# manager ships cert.pem (pins the VPS proxy). Then in the container:
+./store-tunnel client --ca cert.pem --name store-proxy \
+  --route 127.0.0.1:9700=<PEER1_PUBLIC>:19700 \
+  --route 127.0.0.1:9701=<PEER2_PUBLIC>:19700 \
+  --route 127.0.0.1:9702=<PEER3_PUBLIC>:19700 \
+  --route 127.0.0.1:9710=<PEER1_PUBLIC>:19710   # a holder route for publish
+```
+inbox-index.toml already dials 127.0.0.1:9700/9701/9702 (the local tunnel endpoints); publish uses
+`--holder 127.0.0.1:9710`. mesh-dev: gossip is bidirectional over the one outbound dial, no inbound.
+
 ## Bring up (in inbox-dev's container)
-1. Fill placeholders in both manifests (manager, from the wg mesh): `<WRITER_WG_IP>` (this container's wg
-   addr) and the `dial` peers' `<PEERn_WG_IP>` — adjust the dial SET to the ACTUAL prod cluster (2-node
-   now: anchor `1900e667…`/edge `a2b26839…`; 3-node HA: peer1/2/3, already baked here).
+1. Start the client tunnel (above), pinned to the manager's cert. Adjust the `--route` map + the
+   manifest dial pubkey set to the ACTUAL prod cluster (2-node now: anchor `1900e667…`/edge `a2b26839…`;
+   3-node HA: peer1/2/3, baked here).
 2. Place the wasms at `/etc/store/`, data dir `/var/lib/store-inbox-writer/`.
 3. Spawn: `theater spawn inbox-index.toml` + `theater spawn inbox-holder.toml`.
 
@@ -43,8 +58,9 @@ the mutable-membership path (recommended) or a fresh genesis:
 
 ## Publish a deploy (from the container)
 ```sh
-export INDEX=<WRITER_WG_IP>:9700,<PEER1_WG_IP>:9700,<PEER2_WG_IP>:9700
-export HOLDER=<WRITER_WG_IP>:9710,<PEER1_WG_IP>:9710,<PEER2_WG_IP>:9710
+# addresses are the LOCAL tunnel endpoints (the client tunnel carries them to the cluster over TLS)
+export INDEX=127.0.0.1:9700,127.0.0.1:9701,127.0.0.1:9702
+export HOLDER=127.0.0.1:9710      # add ,127.0.0.1:9711,... if you tunnel more holder routes (RF)
 ./publish.sh ops/inbox-actors.json         # store publish each actor -> gossips to the cluster
 ```
 Then, per consuming box (the VPS spine): `store materialize --name <actor> --root /var/lib/store
