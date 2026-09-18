@@ -1,0 +1,18 @@
+[package]
+name = "store-publishd"
+version = "0.1.0"
+edition = "2021"
+[[bin]]
+name = "store-publishd"
+path = "src/main.rs"
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "macros"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rustls-pemfile = "2"
+ed25519-dalek = "2"
+sha2 = { version = "0.10", features = ["oid"] }
+store-protocol = { path = "store-protocol" }
+[profile.release]
+opt-level = "s"
+lto = true
