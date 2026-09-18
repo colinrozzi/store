@@ -8,3 +8,4 @@ tls/
 target/
 result
 result-*
+seeds.env

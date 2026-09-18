@@ -1,5 +1,5 @@
-# HA peer 1 -- CONTENT holder (content-node, persist ON, serves http /by-hash + the content wire).
-name = "store-peer1-holder"
+# HA node 1 -- CONTENT holder (content-node, persist ON, serves http /by-hash + the content wire).
+name = "store-node-1-holder"
 version = "0.1.0"
 package = "/etc/store/content_node.wasm"
 static_package = true
@@ -10,5 +10,5 @@ type = "self"
 type = "tcp"
 [[handler]]
 type = "store"
-base_path = "/var/lib/store-peer1/content"
+base_path = "/var/lib/store-node-1/content"
 store_id = "holder"

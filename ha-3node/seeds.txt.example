@@ -1,8 +1,0 @@
-# 3-node HA peer identities -- TEMPLATE. Real seeds are SECRETS (they derive the writer signing keys):
-# provision them at deploy, keep on-node, NEVER commit. Copy this to seeds.txt (gitignored) + fill real
-# values. pubkey = ed25519(sha256(seed)); verify with `store pubkey --seed <SEED>`. Pubkeys are public.
-PEER1_SEED=<PEER1_SEED>   PEER1_PUBKEY=9c3ec3e2b6b205e7cc1138fe5b55244a5a627cf4b2c08371e518a52ca398ef50
-PEER2_SEED=<PEER2_SEED>   PEER2_PUBKEY=b1a19a46c1cf08c6c43fd4d4608ba05334e94d0cdf4087f7aacaaa88c61f5c16
-PEER3_SEED=<PEER3_SEED>   PEER3_PUBKEY=06214c3472f6d8b2c8813b78f98e01bffd291c3d12d12bbf6338f36fd74b6369
-# genesis: single-writer -> store init --node-seed <PEER1_SEED>
-#          multi-writer   -> store init --allow <PEER1_SEED>,<PEER2_SEED>,<PEER3_SEED>

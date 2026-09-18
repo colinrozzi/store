@@ -9,9 +9,22 @@ fill the placeholders and spawn.
 - `<abs path>/mesh_store.wasm`, `<abs path>/content_node.wasm` — this dir's wasms (absolute path).
 - `<PEERn_WG_IP>` — the wireguard address of each peer (from the manager's WG mesh). Ports:
   index `:9700`, content http `:9710`.
-- Identities are baked (`seeds.txt`): peer-n seed `<PEERn_SEED>`, pubkeys in the dial lists already.
+- `<PEERn_SEED>` — the RANDOM high-entropy node seed, kept ONLY in `seeds.env` (gitignored, on-box,
+  NEVER committed). Render it into the manifests at deploy (below). The dial lists already carry the
+  peers' PUBLIC pubkeys (safe to commit; pubkey = ed25519(sha256(seed)), infeasible to reverse).
 
-Files: `peerN-index.toml` + `peerN-holder.toml` (N=1,2,3), `store` (static CLI), `seeds.txt`.
+Files: `peerN-index.toml` + `peerN-holder.toml` (N=1,2,3), `store` (static CLI), `seeds.env.example`
+(template — copy to the gitignored `seeds.env` on-box and fill real random seeds).
+
+## Render the seeds at deploy (placeholders -> real, from the on-box secrets)
+```sh
+set -a; . ./seeds.env; set +a          # PEER1_SEED.. (random, gitignored, never in the repo)
+for n in 1 2 3; do
+  eval "s=\$PEER${n}_SEED"
+  sed "s/<PEER${n}_SEED>/$s/" peer${n}-index.toml > /etc/store/peer${n}-index.toml   # + fill <PEERn_WG_IP>
+done
+# holders carry no seed. Real seeds never touch the tracked repo.
+```
 
 ## Bring up (each peer, on its box)
 ```sh
@@ -70,7 +83,7 @@ independent publishing.
 ## Deploy convention (supervisor-dev, adopted)
 Per box, under `/etc/store/`: the WG-filled `peerN-index.toml` + `peerN-holder.toml`, the two node
 wasms (`mesh_store.wasm`, `content_node.wasm`), and the static `store` CLI. The manifest `package`
-fields point at `/etc/store/<wasm>` (concrete above); persistent data lives at `/var/lib/store-peerN/`.
+fields point at `/etc/store/<wasm>` (concrete above); persistent data lives at `/var/lib/store-node-N/`.
 supervisor-dev's `deploy/ha-3node/peerN-roster.json` hosts that peer's {index, holder} (crash-restart,
 breaker bumped to 10/60s, keep_chain) via the `store-supervisor@` systemd unit (Restart=always +
 boot-enable = reboot-durable). Only `<PEERn_WG_IP>` remains to fill (from the manager's wireguard mesh).
