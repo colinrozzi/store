@@ -284,28 +284,46 @@ fn cmd_materialize(a: &[String]) {
     let root = flag(a, "--root").unwrap_or_else(|| ".".into());
     let hh = resolve(&index, &name).unwrap_or_else(|e| die(&format!("resolve: {e}")));
     let hash = unhex(&hh).unwrap_or_else(|| die("index hash is not 32-byte hex"));
-    let out = flag(a, "--out").unwrap_or_else(|| package_path(&root, &hh));
-    // idempotent + boot-local: if the content-addressed file already exists + verifies, done.
-    if let Ok(existing) = fs::read(&out) {
-        if sha256(&existing) == hash {
-            println!("{out}  (cached, verified)");
-            return;
+    let explicit_out = flag(a, "--out");
+    let out = explicit_out.clone().unwrap_or_else(|| package_path(&root, &hh));
+    // ensure the content-addressed file exists + verifies (idempotent, boot-local)
+    let have = fs::read(&out).map(|b| sha256(&b) == hash).unwrap_or(false);
+    if have {
+        println!("{out}  (cached, verified)");
+    } else {
+        // fetch from the FIRST live holder that serves the hash (read failover across replicas)
+        let holders: Vec<&str> = holder.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+        let bytes = holders
+            .iter()
+            .find_map(|hd| content_fetch(hd, &hash).ok())
+            .unwrap_or_else(|| die(&format!("fetch {hh}: no holder among {} served it", holders.len())));
+        if let Some(parent) = std::path::Path::new(&out).parent() {
+            fs::create_dir_all(parent).ok();
         }
+        // write-temp+rename -- never clobber a file a live actor may be mmap'ing.
+        let tmp = format!("{out}.tmp.{}", process::id());
+        fs::write(&tmp, &bytes).unwrap_or_else(|e| die(&format!("write {tmp}: {e}")));
+        fs::rename(&tmp, &out).unwrap_or_else(|e| die(&format!("rename -> {out}: {e}")));
+        println!("{out}  ({} bytes, sha256 {} verified)", bytes.len(), hh);
     }
-    // Fetch from the FIRST live holder that serves the hash (read failover across replicas).
-    let holders: Vec<&str> = holder.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
-    let bytes = holders
-        .iter()
-        .find_map(|hd| content_fetch(hd, &hash).ok())
-        .unwrap_or_else(|| die(&format!("fetch {hh}: no holder among {} served it", holders.len())));
-    if let Some(parent) = std::path::Path::new(&out).parent() {
-        fs::create_dir_all(parent).ok();
+    // STABLE LABEL PATH (unless an explicit --out was given): a symlink <root>/by-name/<label>.wasm
+    // -> the content-addressed file. A manifest references THIS fixed path -> local boot (no per-spawn
+    // fetch), and it survives re-deploys (no manifest repoint) -- each deploy re-materializes and the
+    // symlink atomically repoints to the new content. The atomic swap (symlink temp + rename) never
+    // clobbers a live actor's mmap'd content file (the running actor keeps the old inode). theater
+    // resolves the symlink locally (confirmed by theater-dev). This is the inbox's boot model.
+    if explicit_out.is_none() {
+        let label_file = name.replace('/', "_");
+        let bydir = format!("{root}/by-name");
+        fs::create_dir_all(&bydir).ok();
+        let link = format!("{bydir}/{label_file}.wasm");
+        let ltmp = format!("{link}.tmp.{}", process::id());
+        let _ = fs::remove_file(&ltmp);
+        std::os::unix::fs::symlink(&out, &ltmp)
+            .and_then(|_| fs::rename(&ltmp, &link))
+            .unwrap_or_else(|e| die(&format!("stable-label link {link}: {e}")));
+        println!("{link} -> {out}  (STABLE label path; reference THIS in the manifest -- local boot, no fetch, no repoint)");
     }
-    // write to a temp then rename -- never clobber a file a live actor may be reading.
-    let tmp = format!("{out}.tmp.{}", process::id());
-    fs::write(&tmp, &bytes).unwrap_or_else(|e| die(&format!("write {tmp}: {e}")));
-    fs::rename(&tmp, &out).unwrap_or_else(|e| die(&format!("rename -> {out}: {e}")));
-    println!("{out}  ({} bytes, sha256 {} verified)", bytes.len(), hh);
 }
 
 fn cmd_resolve(a: &[String]) {
