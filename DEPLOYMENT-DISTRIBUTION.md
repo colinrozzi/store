@@ -7,7 +7,7 @@ VPS). Distribution design+build: store-dev; deployment + prod touch: the manager
 
 Composes what's already live-proven: the mutable index (`name→hash`), the content layer
 (fetch-by-hash + replicate + verify), and cold-boot persistence (D1). The first-consumer
-proof (`first-consumer-proof/`) already demonstrated *resolve-name→fetch-by-hash→verify*
+early first-consumer proof already demonstrated *resolve-name→fetch-by-hash→verify*
 end to end — this productionizes it into a CLI + a two-node flow.
 
 ## PRIORITY (Colin's call, 2026-09-17): HTTP boot-pull FIRST

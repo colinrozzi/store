@@ -33,14 +33,11 @@ digest-verify, dedups, immutable). A refresh writes a NEW digest path, so it nev
 file a live actor is mmap'ing. The roster manifest's `package` field points at this path;
 theater loads it unchanged (store-agnostic).
 
-## Status -- increment 1 GREEN (local, one box)
-Spawned an index node (mesh_store composite @ febee526) + a content holder (content-node);
-`init` -> `publish` a 202,467-byte wasm -> `resolve` -> `materialize`: the materialized file's
-sha256 == the original == the index-resolved hash, at the content-addressed path. The full
-publish -> resolve -> fetch+verify -> local-file flow works as a CLI.
-
-Next: increment 2 -- two-node (publish on the dev box, materialize on the VPS) over the
-cross-machine mesh (manager deploys; mesh-dev scoping the WAN mesh).
+## Status -- LIVE
+The full flow is proven cross-machine and in production: `init` / `publish` (PUSH bytes to a holder +
+author name->hash) / `resolve` / `materialize` (fetch+verify -> content-addressed local file + stable
+`by-name/<label>` symlink) / `remove` / `gc`. It backs the fleet's live self-service deploy path (see
+`store-publishd`, the token-authed HTTPS front that reuses this CLI's mesh + content client).
 
 ## `store gc` -- GC-by-liveness (completes the nix-CAS)
 `store gc --index <peers> --root <dir>` -- drop on-box CAS files (`<dir>/packages/<sha256>.wasm`)
