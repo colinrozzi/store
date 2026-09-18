@@ -58,11 +58,18 @@ the mutable-membership path (recommended) or a fresh genesis:
 
 ## Publish a deploy (from the container)
 ```sh
-# addresses are the LOCAL tunnel endpoints (the client tunnel carries them to the cluster over TLS)
-export INDEX=127.0.0.1:9700,127.0.0.1:9701,127.0.0.1:9702
-export HOLDER=127.0.0.1:9710      # add ,127.0.0.1:9711,... if you tunnel more holder routes (RF)
-./publish.sh ops/inbox-actors.json         # store publish each actor -> gossips to the cluster
+# INDEX = YOUR OWN LOCAL writer node (:9600). The node you submit to authors+signs the write, so you
+#   MUST submit to your local node (node_seed=store-inbox-writer, allow-listed) -- NOT a tunnel/dial
+#   endpoint (submitting to a cluster peer would author as THAT peer's identity, not yours).
+#   Your node then gossips the authored name->hash to the cluster over its outbound dials (9700..).
+# HOLDER = a CLUSTER holder via the tunnel (:9710) so the bytes are cluster-durable + reachable by the
+#   VPS spine that materializes. (Add 127.0.0.1:9610 too if you also want a local cache copy.)
+export INDEX=127.0.0.1:9600
+export HOLDER=127.0.0.1:9710
+./publish.sh ops/inbox-actors.json         # store publish each actor -> authored locally -> gossips
 ```
+Port scheme: **:9600** local writer index node · **:9610** optional local holder · **:9700/:9701/:9702**
+tunnel→cluster index peers (the node's dial targets) · **:9710** tunnel→cluster holder (publish push).
 Then, per consuming box (the VPS spine): `store materialize --name <actor> --root /var/lib/store
 --index $INDEX --holder $HOLDER` repoints the label symlink to the new content, and inbox-dev's
 `supervisor restart <actor>` picks it up (static_package=false -> fresh read). Freshness guard: poll

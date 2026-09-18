@@ -1,11 +1,13 @@
 # inbox-dev container WRITER -- CONTENT holder (content-node; persist ON; serves the content wire + http).
-# `store publish` from this container PUSHes the wasm bytes here first; the bytes then replicate to the
-# cluster holders (RF) so the content is durable off-box too. Also lets this box serve/materialize locally.
+# OPTIONAL local content cache on loopback :9610. NOTE: for a deploy to be reachable by the VPS spine
+# (which materializes), `store publish` must push bytes to a CLUSTER holder (via the tunnel, 127.0.0.1:9710
+# -> cluster). This local holder is a convenience/cache only; it is NOT on the spine's fetch path.
+# Listens on :9610 to avoid colliding with the tunnel's :9710 route to the cluster holder.
 name = "store-inbox-writer-holder"
 version = "0.1.0"
 package = "/etc/store/content_node.wasm"
 static_package = true
-initial_state = 'role=server;listen=<WRITER_WG_IP>:9710'
+initial_state = 'role=server;listen=127.0.0.1:9610'
 [[handler]]
 type = "self"
 [[handler]]
