@@ -226,7 +226,8 @@ fn main() {
         "materialize" => cmd_materialize(rest),
         "resolve" => cmd_resolve(rest),
         "gc" => cmd_gc(rest),
-        _ => die("usage: store <init|publish|materialize|resolve|gc> ...  (see the source header)"),
+        "add-writer" => cmd_add_writer(rest),
+        _ => die("usage: store <init|publish|materialize|resolve|gc|add-writer> ...  (see the source header)"),
     }
 }
 
@@ -346,4 +347,19 @@ fn cmd_gc(a: &[String]) {
         }
     }
     println!("gc: kept {kept}, dropped {dropped}  (live index roots = {})", live.len());
+}
+
+/// Admit a new writer to the allow-list (mutable membership, no re-genesis). Authored via an
+/// EXISTING writer node (the submitting node signs; it must already be allow-listed). Lets a
+/// live cluster take on a new writer -- e.g. a deploy container's node.
+fn cmd_add_writer(a: &[String]) {
+    let index = need(a, "--index");
+    let pubkey: Vec<u8> = match (flag(a, "--pubkey"), flag(a, "--seed")) {
+        (Some(h), _) => unhex(&h).map(|x| x.to_vec()).unwrap_or_else(|| die("--pubkey must be 64-char hex")),
+        (None, Some(seed)) => node_pubkey(&seed),
+        _ => die("add-writer needs --pubkey <64hex> or --seed <node_seed>"),
+    };
+    let mut idx = connect_index(&index);
+    idx.submit(&encode(&Cmd::AddWriter { pubkey: pubkey.clone() })).unwrap_or_else(|e| die(&format!("add-writer: {e}")));
+    println!("added writer {}", hex(&pubkey));
 }

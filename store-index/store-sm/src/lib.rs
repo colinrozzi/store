@@ -69,6 +69,14 @@ fn do_validate(author: &[u8], cmd: &Cmd, state: &IndexState) -> Result<bool, Str
             }
             Ok(true)
         }
+        // An existing writer admits a new one (mutable allow-list, no re-genesis).
+        Cmd::AddWriter { pubkey } => {
+            gate_write(author, state)?;
+            if pubkey.len() != 32 {
+                return Err("writer pubkey must be 32 bytes".to_string());
+            }
+            Ok(true)
+        }
     }
 }
 
@@ -103,6 +111,14 @@ fn do_apply(id: Vec<u8>, author: Vec<u8>, timestamp: u64, cmd: Cmd, mut state: I
         }
         Cmd::Remove { name } => {
             state.lww_upsert(name, String::new(), true, timestamp, author, id);
+        }
+        Cmd::AddWriter { pubkey } => {
+            // pure set-add: idempotent + commutative (order-independent), so no LWW tiebreak needed.
+            if !state.allow_list.iter().any(|k| k == &pubkey) {
+                state.allow_list.push(pubkey);
+                state.allow_list.sort();
+                state.allow_list.dedup();
+            }
         }
     }
     state
@@ -269,6 +285,21 @@ mod tests {
         let a: Ev = (id(1), pk(1), 10, put("a", &h('a')));
         let b: Ev = (id(2), pk(1), 11, put("b", &h('b')));
         assert_eq!(fold(base.clone(), &[a.clone(), b.clone()]), fold(base, &[b, a]));
+    }
+
+    #[test]
+    fn add_writer_admits_a_new_writer_gated_and_idempotent() {
+        let base = fold(IndexState::default(), &[(id(0), pk(9), 1, genesis(&[1]))]);
+        // a non-writer (pk 2) can't add a writer
+        assert!(do_validate(&pk(2), &Cmd::AddWriter { pubkey: pk(2) }, &base).is_err());
+        // an existing writer (pk 1) admits pk 2
+        let s = fold(base.clone(), &[(id(1), pk(1), 10, Cmd::AddWriter { pubkey: pk(2) })]);
+        assert_eq!(s.allow_list, vec![pk(1), pk(2)]);
+        // now pk 2 is authorized to write
+        assert!(do_validate(&pk(2), &put("k", &h('a')), &s).is_ok());
+        // idempotent: re-adding pk 2 is a no-op, order-independent
+        let s2 = fold(s.clone(), &[(id(2), pk(1), 11, Cmd::AddWriter { pubkey: pk(2) })]);
+        assert_eq!(s2.allow_list, s.allow_list);
     }
 
     #[test]

@@ -36,6 +36,11 @@ pub enum Cmd {
     Put { name: String, hash: String },
     /// Tombstone `name`.
     Remove { name: String },
+    /// Admit a new writer to the allow-list (mutable membership, post-genesis). An existing
+    /// allow-listed writer authors this to add another node's pubkey — so a live cluster can
+    /// take on a new writer (e.g. a deploy container) WITHOUT a disruptive re-genesis. A pure
+    /// set-add: idempotent + commutative, so it's LWW-safe / order-independent.
+    AddWriter { pubkey: PubKey },
 }
 
 /// One index entry: a name bound to a content hash (or a tombstone), tagged with the
