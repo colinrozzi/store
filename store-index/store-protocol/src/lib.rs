@@ -152,6 +152,7 @@ mod tests {
             Cmd::Genesis { allow_list: vec![vec![1u8; 32], vec![2u8; 32]] },
             Cmd::Put { name: "wasm/inbox".to_string(), hash: "a".repeat(64) },
             Cmd::Remove { name: "wasm/inbox".to_string() },
+            Cmd::AddWriter { pubkey: vec![7u8; 32] },
         ] {
             assert_eq!(decode(&encode(&cmd)), Some(cmd));
         }
