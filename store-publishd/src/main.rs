@@ -179,6 +179,12 @@ fn do_publish(cfg: &Cfg, name: &str, wasm: &[u8]) -> Result<String, String> {
         .map_err(|e| format!("put: {e}"))?;
     Ok(hh)
 }
+/// Tombstone a name (deprecate/clean a label). Authors Cmd::Remove on the co-located writer node.
+fn do_remove(cfg: &Cfg, name: &str) -> Result<(), String> {
+    let mut idx = Index::connect(&cfg.index).map_err(|e| format!("index connect: {e}"))?;
+    idx.submit(&encode(&Cmd::Remove { name: name.to_string() })).map_err(|e| format!("remove: {e}"))?;
+    Ok(())
+}
 fn do_resolve(cfg: &Cfg, name: &str) -> Result<Option<String>, String> {
     let mut idx = Index::connect(&cfg.index).map_err(|e| format!("index connect: {e}"))?;
     let bytes = idx.current_state().map_err(|e| format!("current-state: {e}"))?;
@@ -286,6 +292,25 @@ async fn handle<S: AsyncReadExt + AsyncWriteExt + Unpin>(mut s: S, cfg: Arc<Cfg>
         match r {
             Ok(Ok(Some(h))) => respond(&mut s, 200, "OK", &format!("{h}\n")).await,
             Ok(Ok(None)) => respond(&mut s, 404, "Not Found", "name not in index\n").await,
+            Ok(Err(e)) => respond(&mut s, 502, "Bad Gateway", &format!("{e}\n")).await,
+            Err(_) => respond(&mut s, 500, "Internal Server Error", "join\n").await,
+        }
+        return;
+    }
+
+    if method == "DELETE" && path.starts_with("/publish") {
+        let name = match query_param(path, "name") {
+            Some(n) => n,
+            None => {
+                respond(&mut s, 400, "Bad Request", "missing ?name=\n").await;
+                return;
+            }
+        };
+        let cfg2 = cfg.clone();
+        let name2 = name.clone();
+        let r = tokio::task::spawn_blocking(move || do_remove(&cfg2, &name2)).await;
+        match r {
+            Ok(Ok(())) => respond(&mut s, 200, "OK", &format!("{{\"name\":\"{name}\",\"removed\":true}}\n")).await,
             Ok(Err(e)) => respond(&mut s, 502, "Bad Gateway", &format!("{e}\n")).await,
             Err(_) => respond(&mut s, 500, "Internal Server Error", "join\n").await,
         }

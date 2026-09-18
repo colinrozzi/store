@@ -228,7 +228,8 @@ fn main() {
         "gc" => cmd_gc(rest),
         "add-writer" => cmd_add_writer(rest),
         "pubkey" => cmd_pubkey(rest),
-        _ => die("usage: store <init|publish|materialize|resolve|gc|add-writer|pubkey> ...  (see the source header)"),
+        "remove" => cmd_remove(rest),
+        _ => die("usage: store <init|publish|materialize|resolve|remove|gc|add-writer|pubkey> ...  (see the source header)"),
     }
 }
 
@@ -255,6 +256,17 @@ fn cmd_init(a: &[String]) {
     idx.submit(&encode(&Cmd::Genesis { allow_list: allow.clone() })).unwrap_or_else(|e| die(&format!("genesis: {e}")));
     let short: Vec<String> = allow.iter().map(|pk| pk.iter().take(4).map(|b| format!("{:02x}", b)).collect()).collect();
     println!("initialized index: allow-listed {} writer node(s): {}", allow.len(), short.join(", "));
+}
+
+/// Tombstone a name on the index (deprecate/clean a label). Authors Cmd::Remove -> the entry goes
+/// tombstoned (resolve returns "not in index"), and once no live entry references its hash, `store gc`
+/// reaps the content. Note: gc will NOT reap a still-live label's content -- tombstone first.
+fn cmd_remove(a: &[String]) {
+    let name = need(a, "--name");
+    let index = need(a, "--index");
+    let mut idx = connect_index(&index);
+    idx.submit(&encode(&Cmd::Remove { name: name.clone() })).unwrap_or_else(|e| die(&format!("remove: {e}")));
+    println!("removed (tombstoned) {name} on index {index}");
 }
 
 /// Central authorized publish: PUSH the wasm to a content holder + author name->hash on the index.

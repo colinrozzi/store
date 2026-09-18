@@ -33,6 +33,8 @@ POST /publish?name=<label>     body = raw wasm bytes
     -> 400 empty/short body (Content-Length not satisfied)   413 over --max-body-mb
     -> 401 bad/absent token    502 upstream (holder/index) error
 
+DELETE /publish?name=<label>   -> 200 {"name":"<label>","removed":true}   (tombstone: deprecate/clean a label)
+    once tombstoned, its content is gc-eligible (no live index entry). 401 bad token · 502 upstream.
 GET  /resolve?name=<label>     -> 200 <64hex>\n   | 404 name not in index    (for the deploy propagation gate)
 GET  /health                   -> 200 ok          (no auth)
 ```
