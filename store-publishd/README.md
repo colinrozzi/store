@@ -42,8 +42,9 @@ POST /publish?name=<label>     body = raw wasm bytes
 
 DELETE /publish?name=<label>   -> 200 {"name":"<label>","removed":true}   (tombstone: deprecate/clean a label)
     once tombstoned, its content is gc-eligible (no live index entry). 401 bad token · 502 upstream.
-GET  /resolve?name=<label>     -> 200 <64hex>\n   | 404 name not in index    (for the deploy propagation gate)
-GET  /health                   -> 200 ok          (no auth)
+GET  /resolve?name=<label>     (Bearer) -> 200 <64hex>\n | 404 name not in index   (deploy propagation gate)
+    NOTE: /resolve IS authed too -- returns 401 without the token. ONLY /health is open.
+GET  /health                   -> 200 ok          (no auth -- the only open route)
 ```
 
 ## Deploy script shape (inbox-dev's piece 4)
