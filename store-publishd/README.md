@@ -21,9 +21,16 @@ printf '%s' "$DEPLOY_TOKEN" > /etc/store/publish.token               # the beare
 store-publishd --listen 0.0.0.0:8443 \
   --cert /etc/store/tls/cert.pem --key /etc/store/tls/key.pem \
   --token-file /etc/store/publish.token \
-  --index 127.0.0.1:9700 --holder 127.0.0.1:9710 [--max-body-mb 64]
+  --index 127.0.0.1:9700 --holder 127.0.0.1:9710 \
+  --materialize-root /var/lib/store [--max-body-mb 64]
 #   --index  = the co-located writer peer's mesh listen port (it authors the Put + gossips)
 #   --holder = local content holder(s), comma list for RF (bytes must land where the spine can fetch)
+#   --materialize-root = REQUIRED when publishd is co-located with the consuming acceptor. On publish
+#     it also writes <root>/packages/<hash>.wasm and atomically repoints <root>/by-name/<name>.wasm
+#     (same path convention as `store materialize`), so the label symlink the manifest references is
+#     FRESH the instant POST /publish returns -- otherwise the off-box deploy script's `supervisor
+#     restart` re-reads the OLD symlink = a silent stale (old-code) deploy. Omit ONLY if publishd is
+#     NOT on the acceptor's box (then that box needs its own materialize trigger).
 ```
 
 ## Endpoint (all but /health require `Authorization: Bearer <token>`)

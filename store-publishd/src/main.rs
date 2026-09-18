@@ -165,9 +165,17 @@ struct Cfg {
     holders: Vec<String>,
     token: Vec<u8>,
     max_body: usize,
+    /// If set, do_publish ALSO materializes locally on THIS box: writes <root>/packages/<hash>.wasm
+    /// and atomically repoints <root>/by-name/<label>.wasm -> it. Required when publishd is co-located
+    /// with the consuming acceptor, so the stable label symlink the manifest references is fresh the
+    /// instant POST /publish returns -- else a supervisor restart re-reads the OLD symlink (stale deploy).
+    /// Path convention MATCHES `store materialize` exactly (packages/ + by-name/<name>.wasm, `/`->`_`).
+    materialize_root: Option<String>,
 }
 
-/// PUSH content to all holders (RF; every push must succeed), then submit Put(name->hash).
+/// PUSH content to all holders (RF; every push must succeed), submit Put(name->hash), and -- if a
+/// materialize root is configured -- repoint this box's stable label symlink to the new content
+/// (bytes are already in hand, so no fetch). Returns the stored hash.
 fn do_publish(cfg: &Cfg, name: &str, wasm: &[u8]) -> Result<String, String> {
     let h = sha256(wasm);
     let hh = hex(&h);
@@ -177,7 +185,34 @@ fn do_publish(cfg: &Cfg, name: &str, wasm: &[u8]) -> Result<String, String> {
     let mut idx = Index::connect(&cfg.index).map_err(|e| format!("index connect: {e}"))?;
     idx.submit(&encode(&Cmd::Put { name: name.to_string(), hash: hh.clone() }))
         .map_err(|e| format!("put: {e}"))?;
+    if let Some(root) = &cfg.materialize_root {
+        materialize_local(root, name, &h, &hh, wasm)?;
+    }
     Ok(hh)
+}
+
+/// Write <root>/packages/<hh>.wasm (idempotent, from bytes in hand) and atomically repoint the stable
+/// label symlink <root>/by-name/<label>.wasm -> it. Atomic swap never clobbers a live actor's inode.
+fn materialize_local(root: &str, name: &str, h: &[u8; 32], hh: &str, wasm: &[u8]) -> Result<(), String> {
+    let pkg_dir = format!("{root}/packages");
+    let pkg = format!("{pkg_dir}/{hh}.wasm");
+    std::fs::create_dir_all(&pkg_dir).map_err(|e| format!("mkdir {pkg_dir}: {e}"))?;
+    let have = std::fs::read(&pkg).map(|b| &sha256(&b) == h).unwrap_or(false);
+    if !have {
+        let tmp = format!("{pkg}.tmp.{}", std::process::id());
+        std::fs::write(&tmp, wasm).map_err(|e| format!("write {tmp}: {e}"))?;
+        std::fs::rename(&tmp, &pkg).map_err(|e| format!("rename -> {pkg}: {e}"))?;
+    }
+    let label_file = name.replace('/', "_");
+    let bydir = format!("{root}/by-name");
+    std::fs::create_dir_all(&bydir).map_err(|e| format!("mkdir {bydir}: {e}"))?;
+    let link = format!("{bydir}/{label_file}.wasm");
+    let ltmp = format!("{link}.tmp.{}", std::process::id());
+    let _ = std::fs::remove_file(&ltmp);
+    std::os::unix::fs::symlink(&pkg, &ltmp)
+        .and_then(|_| std::fs::rename(&ltmp, &link))
+        .map_err(|e| format!("symlink {link}: {e}"))?;
+    Ok(())
 }
 /// Tombstone a name (deprecate/clean a label). Authors Cmd::Remove on the co-located writer node.
 fn do_remove(cfg: &Cfg, name: &str) -> Result<(), String> {
@@ -387,6 +422,7 @@ fn main() {
         die("token file is empty");
     }
     let holders: Vec<String> = holder.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+    let materialize_root = flag(&a, "--materialize-root");
 
     let certs = load_certs(&cert);
     let pkey = load_key(&key);
@@ -395,12 +431,18 @@ fn main() {
         .with_single_cert(certs, pkey)
         .unwrap_or_else(|e| die(&format!("tls cert: {e}")));
     let acceptor = TlsAcceptor::from(Arc::new(tls));
-    let cfg = Arc::new(Cfg { index, holders, token, max_body });
+    let cfg = Arc::new(Cfg { index, holders, token, max_body, materialize_root });
 
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap_or_else(|e| die(&format!("rt: {e}")));
     rt.block_on(async move {
         let l = TcpListener::bind(&listen).await.unwrap_or_else(|e| die(&format!("bind {listen}: {e}")));
-        eprintln!("[publishd] https {listen} -> index {} holders {:?} (max-body {} MiB)", cfg.index, cfg.holders, cfg.max_body / 1024 / 1024);
+        eprintln!(
+            "[publishd] https {listen} -> index {} holders {:?} (max-body {} MiB) materialize={}",
+            cfg.index,
+            cfg.holders,
+            cfg.max_body / 1024 / 1024,
+            cfg.materialize_root.as_deref().unwrap_or("<none: co-located restarts read STALE symlinks>")
+        );
         loop {
             let (sock, _peer) = match l.accept().await {
                 Ok(x) => x,
