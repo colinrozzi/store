@@ -1,0 +1,24 @@
+# inbox-dev container WRITER -- INDEX node (mesh_store composite, persist ON, dials the prod cluster).
+# Identity: seed "store-inbox-writer" -> pubkey d03bb0f97b56786cf870c33644fbc4300d458bbb0b514e39b6e730de401bc9d0
+# This node AUTHORS index writes (name -> hash) from inbox-dev's container; the writes gossip to the
+# cluster over the mesh. It must be allow-listed (genesis --allow, OR add-writer on the live cluster).
+name = "store-inbox-writer-index"
+version = "0.1.0"
+package = "/etc/store/mesh_store.wasm"
+static_package = true
+# Fill <WRITER_WG_IP> (this container's wg addr) + the cluster peers' wg addrs below (manager's wg mesh).
+# dial = the prod cluster index nodes. Pubkeys are baked (the 3-node HA peers); adjust the set to the
+# ACTUAL prod cluster (2-node now: anchor 1900e667.../edge a2b26839...; 3-node HA: peer1/2/3 below).
+initial_state = '{"node_seed":"store-inbox-writer","listen_addr":"<WRITER_WG_IP>:9700","dial":[{"pubkey":"9c3ec3e2b6b205e7cc1138fe5b55244a5a627cf4b2c08371e518a52ca398ef50","address":"<PEER1_WG_IP>:9700"},{"pubkey":"b1a19a46c1cf08c6c43fd4d4608ba05334e94d0cdf4087f7aacaaa88c61f5c16","address":"<PEER2_WG_IP>:9700"},{"pubkey":"06214c3472f6d8b2c8813b78f98e01bffd291c3d12d12bbf6338f36fd74b6369","address":"<PEER3_WG_IP>:9700"}]}'
+[[handler]]
+type = "self"
+[[handler]]
+type = "tcp"
+[[handler]]
+type = "timer"
+[[handler]]
+type = "message-server"
+[[handler]]
+type = "store"
+base_path = "/var/lib/store-inbox-writer/index"
+store_id = "store"

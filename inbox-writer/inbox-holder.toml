@@ -1,0 +1,16 @@
+# inbox-dev container WRITER -- CONTENT holder (content-node; persist ON; serves the content wire + http).
+# `store publish` from this container PUSHes the wasm bytes here first; the bytes then replicate to the
+# cluster holders (RF) so the content is durable off-box too. Also lets this box serve/materialize locally.
+name = "store-inbox-writer-holder"
+version = "0.1.0"
+package = "/etc/store/content_node.wasm"
+static_package = true
+initial_state = 'role=server;listen=<WRITER_WG_IP>:9710'
+[[handler]]
+type = "self"
+[[handler]]
+type = "tcp"
+[[handler]]
+type = "store"
+base_path = "/var/lib/store-inbox-writer/content"
+store_id = "holder"

@@ -15,8 +15,15 @@ store-protocol), so it builds + runs on any box (dev box, VPS) with no test-crat
   holder, author `Put(N -> hash)` on the index. The central authorized step.
 - `store materialize --name N --index A --holder A --root D [--out P]` -- resolve `N -> hash`
   from the index; if `<D>/packages/<hash>.wasm` exists + verifies use it, else fetch-by-hash +
-  verify + write it (temp+rename). Prints the path. Idempotent; boot-local afterward.
+  verify + write it (temp+rename). Prints the path. Idempotent; boot-local afterward. Unless
+  `--out` is given, ALSO maintains a STABLE label symlink `<D>/by-name/<N>.wasm -> packages/<hash>.wasm`
+  (atomic swap; `/` in N -> `_`) -- the mutable-label local path a manifest references so a re-deploy
+  repoints the symlink with NO manifest change (theater reads THROUGH it fresh each spawn when
+  `static_package=false`; local disk, no per-spawn fetch). This is the inbox's boot model (id=67).
 - `store resolve --name N --index A` -- print the current `N -> hash`.
+- `store add-writer --index A (--pubkey 64hex | --seed S)` -- author `AddWriter` to admit a new writer
+  to the allow-list post-genesis (mutable membership; no re-genesis). Pure set-add: idempotent + LWW-safe.
+- `store pubkey --seed S` -- print the node pubkey (64hex) for seed S. `pubkey = ed25519(SHA-256(S))`.
 
 ## Path convention (supervisor-dev)
 `<root>/packages/<sha256>.wasm` -- content-addressed: the sha256 IS the identity (matches

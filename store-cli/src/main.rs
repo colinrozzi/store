@@ -227,8 +227,16 @@ fn main() {
         "resolve" => cmd_resolve(rest),
         "gc" => cmd_gc(rest),
         "add-writer" => cmd_add_writer(rest),
-        _ => die("usage: store <init|publish|materialize|resolve|gc|add-writer> ...  (see the source header)"),
+        "pubkey" => cmd_pubkey(rest),
+        _ => die("usage: store <init|publish|materialize|resolve|gc|add-writer|pubkey> ...  (see the source header)"),
     }
+}
+
+/// Print the 32-byte node pubkey (64 hex) for a `--seed` -- the writer identity to allow-list
+/// (genesis `--allow` or `add-writer --pubkey`). Deterministic: pubkey = ed25519(SHA-256(seed)).
+fn cmd_pubkey(a: &[String]) {
+    let seed = need(a, "--seed");
+    println!("{}", hex(&node_pubkey(&seed)));
 }
 
 /// Author the genesis event: allow-list the writer node(s). `--node-seed S` = single-writer
