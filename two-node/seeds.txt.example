@@ -1,0 +1,4 @@
+# two-node identities -- TEMPLATE. Real seeds are SECRETS: provision at deploy, keep on-node, NEVER commit.
+# Copy to seeds.txt (gitignored) + fill. pubkey = ed25519(sha256(seed)); verify `store pubkey --seed <SEED>`.
+ANCHOR_SEED=<ANCHOR_SEED>   ANCHOR_PUBKEY=1900e667f84e437e94c6b5035121c1ae77a4eaedd5f37703ad6f9960f08a3aaf
+EDGE_SEED=<EDGE_SEED>       EDGE_PUBKEY=a2b26839...   # (fill the real edge pubkey)

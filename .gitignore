@@ -1,0 +1,10 @@
+# secrets -- NEVER commit (provisioned at deploy, kept on-node)
+seeds.txt
+*.token
+publish.token
+key.pem
+tls/
+# build
+target/
+result
+result-*

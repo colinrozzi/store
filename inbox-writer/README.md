@@ -20,8 +20,8 @@ manifest change**. Deploy trigger = in-process `supervisor restart <acceptor>` (
 - `publish.sh` — the deploy publish step (walks an actor->wasm map, `store publish` each).
 
 ## Identity (baked)
-seed `store-inbox-writer` -> pubkey `d03bb0f97b56786cf870c33644fbc4300d458bbb0b514e39b6e730de401bc9d0`
-(verify: `./store pubkey --seed store-inbox-writer`). This is the pubkey to **allow-list** as a writer.
+seed `<WRITER_SEED>` -> pubkey `d03bb0f97b56786cf870c33644fbc4300d458bbb0b514e39b6e730de401bc9d0`
+(verify: `./store pubkey --seed <WRITER_SEED>`). This is the pubkey to **allow-list** as a writer.
 
 ## Transport = encrypted static tunnel (b', Colin id=77) — NOT wireguard
 `store-tunnel` (this dir, and `../store-tunnel/`) is the static TLS proxy. Curl it into the running
@@ -42,7 +42,7 @@ inbox-index.toml already dials 127.0.0.1:9700/9701/9702 (the local tunnel endpoi
 1. Start the client tunnel (above), pinned to the manager's cert. Adjust the `--route` map + the
    manifest dial pubkey set to the ACTUAL prod cluster (2-node now: anchor `1900e667…`/edge `a2b26839…`;
    3-node HA: peer1/2/3, baked here).
-2. Place the wasms at `/etc/store/`, data dir `/var/lib/store-inbox-writer/`.
+2. Place the wasms at `/etc/store/`, data dir `/var/lib/store-writer/`.
 3. Spawn: `theater spawn inbox-index.toml` + `theater spawn inbox-holder.toml`.
 
 ## Admit the writer (GATE — pick one, manager sequences)
@@ -50,7 +50,7 @@ The live cluster's index was already genesis'd, and genesis is **one-shot**, so 
 the mutable-membership path (recommended) or a fresh genesis:
 - **(a) AddWriter [recommended]:** an existing allow-listed writer authors it — no re-genesis, one command:
   `./store add-writer --index <cluster> --pubkey d03bb0f97b56786cf870c33644fbc4300d458bbb0b514e39b6e730de401bc9d0`
-  (or `--seed store-inbox-writer`). Pure set-add on the allow-list: idempotent + LWW-safe. Requires the
+  (or `--seed <WRITER_SEED>`). Pure set-add on the allow-list: idempotent + LWW-safe. Requires the
   `store_sm` on the cluster to include `Cmd::AddWriter` (committed 4c00540) — a coordinated recompose+redeploy
   the manager sequences. See `../DEPLOYMENT-DISTRIBUTION.md`.
 - **(b) fresh genesis:** re-genesis the cluster with the writer in `--allow` (disruptive; only if standing
@@ -59,7 +59,7 @@ the mutable-membership path (recommended) or a fresh genesis:
 ## Publish a deploy (from the container)
 ```sh
 # INDEX = YOUR OWN LOCAL writer node (:9600). The node you submit to authors+signs the write, so you
-#   MUST submit to your local node (node_seed=store-inbox-writer, allow-listed) -- NOT a tunnel/dial
+#   MUST submit to your local node (node_seed=<WRITER_SEED>, allow-listed) -- NOT a tunnel/dial
 #   endpoint (submitting to a cluster peer would author as THAT peer's identity, not yours).
 #   Your node then gossips the authored name->hash to the cluster over its outbound dials (9700..).
 # HOLDER = a CLUSTER holder via the tunnel (:9710) so the bytes are cluster-durable + reachable by the

@@ -21,8 +21,8 @@ chmod +x /etc/store/store
 cp store-supervisor@.service /etc/systemd/system/ && systemctl daemon-reload
 # 2. fill the wireguard address in /etc/store/peerN-index.toml  (<PEERn_WG_IP> -> the WG IPs)
 # 3. (peer-1 / whichever is the writer, ONCE) author genesis:
-/etc/store/store init --index <PEER1_WG_IP>:9700 --node-seed store-peer-1
-#    or multi-writer (write-HA): --index <all>:9700 --allow store-peer-1,store-peer-2,store-peer-3
+/etc/store/store init --index <PEER1_WG_IP>:9700 --node-seed <PEER1_SEED>
+#    or multi-writer (write-HA): --index <all>:9700 --allow <PEER1_SEED>,<PEER2_SEED>,<PEER3_SEED>
 # 4. bring the peer up SUPERVISED (crash-restart + reboot-durable):
 systemctl enable --now store-supervisor@N
 ```

@@ -3,7 +3,7 @@
 # (which materializes), `store publish` must push bytes to a CLUSTER holder (via the tunnel, 127.0.0.1:9710
 # -> cluster). This local holder is a convenience/cache only; it is NOT on the spine's fetch path.
 # Listens on :9610 to avoid colliding with the tunnel's :9710 route to the cluster holder.
-name = "store-inbox-writer-holder"
+name = "store-writer-holder"
 version = "0.1.0"
 package = "/etc/store/content_node.wasm"
 static_package = true
@@ -14,5 +14,5 @@ type = "self"
 type = "tcp"
 [[handler]]
 type = "store"
-base_path = "/var/lib/store-inbox-writer/content"
+base_path = "/var/lib/store-writer/content"
 store_id = "holder"

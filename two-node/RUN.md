@@ -16,11 +16,11 @@ Artifacts in this dir:
 
 `anchor-index.toml` (the index node):
 ```toml
-name = "store-anchor"
+name = "store-node-a"
 version = "0.1.0"
 package = "/abs/path/to/mesh_store.wasm"
 static_package = true
-initial_state = '{"node_seed":"store-anchor-v1","listen_addr":"127.0.0.1:9700"}'
+initial_state = '{"node_seed":"<ANCHOR_SEED>","listen_addr":"127.0.0.1:9700"}'
 [[handler]]
 type = "self"
 [[handler]]
@@ -31,7 +31,7 @@ type = "timer"
 type = "message-server"
 [[handler]]
 type = "store"
-base_path = "/var/lib/store-anchor"
+base_path = "/var/lib/store-node-a"
 store_id = "store"
 ```
 
@@ -55,7 +55,7 @@ store_id = "holder"
 Spawn both (each in its own process), then:
 ```sh
 # 1) GENESIS -- allow-list the anchor node as the sole writer (once):
-./store init    --index 127.0.0.1:9700 --node-seed store-anchor-v1
+./store init    --index 127.0.0.1:9700 --node-seed <ANCHOR_SEED>
 # 2) PUBLISH the noop wasm (fetch it first from supervisor-dev's URL):
 curl -sL https://raw.githubusercontent.com/colinrozzi/supervisor/main/experiments/noop/noop.wasm -o noop.wasm
 ./store publish --index 127.0.0.1:9700 --holder 127.0.0.1:9710 --name noop --wasm noop.wasm
@@ -69,11 +69,11 @@ curl -sL https://raw.githubusercontent.com/colinrozzi/supervisor/main/experiment
 
 `edge-index.toml` (SAME wasm; NO store handler = persist OFF; dials the anchor):
 ```toml
-name = "store-edge"
+name = "store-node-b"
 version = "0.1.0"
 package = "/abs/path/to/mesh_store.wasm"
 static_package = true
-initial_state = '{"node_seed":"store-edge-v1","listen_addr":"127.0.0.1:9700","dial":[{"pubkey":"1900e667f84e437e94c6b5035121c1ae77a4eaedd5f37703ad6f9960f08a3aaf","address":"127.0.0.1:9700"}]}'
+initial_state = '{"node_seed":"<EDGE_SEED>","listen_addr":"127.0.0.1:9700","dial":[{"pubkey":"1900e667f84e437e94c6b5035121c1ae77a4eaedd5f37703ad6f9960f08a3aaf","address":"127.0.0.1:9700"}]}'
 [[handler]]
 type = "self"
 [[handler]]

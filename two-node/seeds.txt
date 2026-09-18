@@ -1,6 +1,0 @@
-# Store two-node test identities (ed25519 pubkey = ed25519(sha256(seed)))
-ANCHOR_SEED=store-anchor-v1
-EDGE_SEED=store-edge-v1
-ANCHOR_PUBKEY=1900e667f84e437e94c6b5035121c1ae77a4eaedd5f37703ad6f9960f08a3aaf
-EDGE_PUBKEY=a2b26839724e54b788548fdea0b026665987c268cc94121b03c421b71960f5af
-# Genesis allow_list = [ANCHOR_PUBKEY]  (the anchor node is the sole authorized writer)

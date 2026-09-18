@@ -9,7 +9,7 @@ fill the placeholders and spawn.
 - `<abs path>/mesh_store.wasm`, `<abs path>/content_node.wasm` — this dir's wasms (absolute path).
 - `<PEERn_WG_IP>` — the wireguard address of each peer (from the manager's WG mesh). Ports:
   index `:9700`, content http `:9710`.
-- Identities are baked (`seeds.txt`): peer-n seed `store-peer-n`, pubkeys in the dial lists already.
+- Identities are baked (`seeds.txt`): peer-n seed `<PEERn_SEED>`, pubkeys in the dial lists already.
 
 Files: `peerN-index.toml` + `peerN-holder.toml` (N=1,2,3), `store` (static CLI), `seeds.txt`.
 
@@ -25,12 +25,12 @@ peer on tick) — transparent to this config; it just makes the full mesh heal a
 ## Genesis (once) — pick single- or multi-writer
 ```sh
 # single-writer (v1, simplest): only peer-1 may author index writes
-./store init --index <PEER1_WG_IP>:9700 --node-seed store-peer-1
+./store init --index <PEER1_WG_IP>:9700 --node-seed <PEER1_SEED>
 
 # multi-writer (WRITE-HA): any peer may author; the LWW register converges failover writes,
 # NO consensus. Recommended for HA.
 ./store init --index <PEER1_WG_IP>:9700,<PEER2_WG_IP>:9700,<PEER3_WG_IP>:9700 \
-             --allow store-peer-1,store-peer-2,store-peer-3
+             --allow <PEER1_SEED>,<PEER2_SEED>,<PEER3_SEED>
 ```
 Keep ONE logical publisher (the release pipeline); multi-writer is for FAILOVER, not concurrent
 independent publishing.
