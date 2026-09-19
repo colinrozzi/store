@@ -13,5 +13,4 @@ seeds.env
 # build artifacts -- rebuilt from source, NOT committed (public repo)
 *.wasm
 /ha-3node/store
-/store-tunnel/store-tunnel
 /store-publishd/store-publishd

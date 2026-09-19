@@ -19,7 +19,7 @@ gitignored `seeds.env` on-box and fill real random seeds).
 ## Build the artifacts (not committed — public repo keeps binaries out of git)
 The binaries + wasms are build outputs, gitignored; build and drop them here (or `/etc/store/`) at deploy:
 - `store` (static-musl CLI) — from `../store-cli` (`cargo build --release`, or the static-musl nix
-  pattern used by `../store-tunnel/flake.nix` / `../store-publishd/flake.nix`).
+  pattern in `../store-publishd/flake.nix`).
 - `mesh_store.wasm` — the mesh⊕index composite, `mesh.lib.mkComposite { name="store"; sm=store_sm.wasm }`
   over `../store-index/store-sm` (see `../store-index/README.md`).
 - `content_node.wasm` — from `../content-node` (see its README).

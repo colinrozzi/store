@@ -4,7 +4,7 @@ A token-authed **HTTPS publish endpoint**, co-located with a cluster peer on the
 a build with a plain outbound `curl -X POST` + a bearer token — the fleet's existing pattern (inbox API,
 supervisor mgmt). No mesh node in the deployer's container, no TLS tunnel, no AddWriter, no gossip-timing
 gate on the client side. The cluster mesh ports stay private on the VPS; only this authed HTTPS front is
-public. (Chosen over the node+tunnel path — id=81/82. The `../store-tunnel/` path remains the fallback.)
+public. (Chosen over an earlier own-key node+TLS-tunnel path — id=81/82.)
 
 It reuses the store CLI's proven mesh client + content wire: on POST it SHA-256-hashes the wasm, pushes
 the bytes to the local holder(s), and submits `Put(name -> hash)` to the co-located writer node (which
@@ -14,8 +14,10 @@ own-key authorship, since the write is now authored server-side by the co-locate
 
 ## Run (VPS, next to a cluster peer)
 ```sh
-# cert: reuse the tunnel's gen-cert (or any TLS cert/key). key.pem stays on the VPS; ship cert.pem to callers.
-store-tunnel gen-cert --out /etc/store/tls --name store-publishd     # (from ../store-tunnel)
+# cert: any TLS cert/key (self-signed is fine — callers pin it via --cacert). key.pem stays on the VPS.
+mkdir -p /etc/store/tls && openssl req -x509 -newkey ed25519 -nodes -days 3650 \
+  -subj "/CN=store-publishd" -addext "subjectAltName=DNS:<your-host>" \
+  -keyout /etc/store/tls/key.pem -out /etc/store/tls/cert.pem      # ship cert.pem to callers
 printf '%s' "$DEPLOY_TOKEN" > /etc/store/publish.token               # the bearer secret
 
 store-publishd --listen 0.0.0.0:8443 \

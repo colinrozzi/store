@@ -2,7 +2,7 @@
 name = "content-node"
 version = "0.1.0"
 edition = "2021"
-description = "The store's content-transport actor (D2 v0a): fetch-by-hash over the theater tcp handler, SHA-256-verified on receipt, over the local content-store CAS. Self-orchestrating proof: a server seeds+serves; a client fetches a hash it lacks, verifies, and shuts down with a pass marker."
+description = "The store's content-transport actor (D2 v0a): fetch-by-hash over the theater tcp handler, SHA-256-verified on receipt, over theater's per-box store (CAS). Self-orchestrating proof: a server seeds+serves; a client fetches a hash it lacks, verifies, and shuts down with a pass marker."
 
 [lib]
 crate-type = ["cdylib"]

@@ -3,7 +3,7 @@
 //! Fetch-by-hash for the immutable content layer (see ../CONTENT-TRANSPORT-DESIGN.md): a
 //! box missing a hash fetches the bytes from a peer that holds them, over its OWN tcp
 //! (NOT the mesh node's DAG transport), and **verifies the SHA-256 on receipt**. The local
-//! byte sink is theater's content store (same CAS `content-store/` wraps).
+//! byte sink is theater's content store (the per-box CAS).
 //!
 //! ## v0a — self-orchestrating proof (no external driver)
 //! Two content-nodes over tcp:
@@ -11,7 +11,7 @@
 //!   serves `REQ_GET` requests with the bytes;
 //! - a **client** (`role=client;peer=ADDR;expect=SHA256HEX`) connects on init, sends
 //!   `REQ_GET expect`, and on the `BLOB` reply re-verifies the SHA-256 and shuts down with
-//!   `content-node-fetch-passed` (or `-failed:<reason>`). This mirrors the `content-store`
+//!   `content-node-fetch-passed` (or `-failed:<reason>`). This mirrors the early CAS proof
 //!   self-test, but the bytes cross a real tcp hop between two actors.
 //!
 //! ## Wire framing (self-framed, one connection carries many frames)

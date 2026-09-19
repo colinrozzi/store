@@ -3,7 +3,7 @@
 The store's content-transport actor (see `../CONTENT-TRANSPORT-DESIGN.md`): a box missing
 a hash fetches the bytes from a peer over its **own tcp** (not the mesh node's DAG
 transport) and **verifies the SHA-256 on receipt**, into the local theater content store
-(the same CAS `content-store/` wraps). This is what makes the content layer
+(theater's per-box store). This is what makes the content layer
 *fleet-distributed* rather than per-box.
 
 ## v0a -- GREEN (fetch-by-hash between two boxes, live)
