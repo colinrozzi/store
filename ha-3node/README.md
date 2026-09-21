@@ -86,12 +86,13 @@ independent publishing.
 - **store-dev:** these manifests + the CLI failover/RF (done).
 - **mesh-dev:** self-healing dial (persistent + multi-peer re-dial) — prerequisite for the mesh HA.
 - **manager:** the wireguard mesh (durable transport) replacing the ad-hoc ssh -R.
-- **supervisor-dev:** host these as supervisor roster entries (crash-restart + reboot-durable).
+- **process mgmt:** plain systemd — one `Restart=always` unit per node (the full supervisor was stood
+  down as over-provisioned for a fixed cluster with no dynamic membership). Full bring-up in `DEPLOY.md`.
 
-## Deploy convention (supervisor-dev, adopted)
-Per box, under `/etc/store/`: the WG-filled `peerN-index.toml` + `peerN-holder.toml`, the two node
-wasms (`mesh_store.wasm`, `content_node.wasm`), and the static `store` CLI. The manifest `package`
-fields point at `/etc/store/<wasm>` (concrete above); persistent data lives at `/var/lib/store-node-N/`.
-supervisor-dev's `deploy/ha-3node/peerN-roster.json` hosts that peer's {index, holder} (crash-restart,
-breaker bumped to 10/60s, keep_chain) via the `store-supervisor@` systemd unit (Restart=always +
-boot-enable = reboot-durable). Only `<PEERn_WG_IP>` remains to fill (from the manager's wireguard mesh).
+## Deploy convention
+Per box, under `/etc/store/`: the seed-rendered `peerN-index.toml` + `peerN-holder.toml`, the two node
+wasms (`mesh_store.wasm`, `content_node.wasm` — built, see above), and the static `store` CLI. Manifest
+`package` fields point at `/etc/store/<wasm>`; persistent data lives at `/var/lib/store-node-N/`. Each of
+the 6 nodes runs under a plain systemd `store-node@` template (Restart=always, boot-enabled =
+reboot-durable) — see `DEPLOY.md` for the unit + `systemctl enable` lines. Only `<PEERn_WG_IP>` remains
+to fill (from the manager's wireguard mesh).
