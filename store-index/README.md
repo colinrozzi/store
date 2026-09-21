@@ -33,18 +33,23 @@ the store's production acceptance bar). See `../LAYER0-DESIGN.md`.
 
 ## Build + test
 
+`store-protocol` is a member of the repo-root cargo workspace (shared with the native tools). `store-sm`
+is deliberately SELF-CONTAINED — its own `Cargo.lock`, self-rooted `[workspace]` — because the mesh's
+`buildWasm` vendors each wasm crate's own lock, so it is NOT a workspace member.
+
 ```sh
-# wasm (composes with the mesh): reuse the mesh flake's buildWasm.
+# wasm (composes with the mesh): run FROM store-index/ so src=./. carries store-sm + store-protocol as
+# siblings and store-sm's own Cargo.lock is found.
 MESH=<mesh flake source in /nix/store>   # a dir with node.pact + flake.nix
 nix build --impure --expr '
   let mesh = builtins.getFlake "path:'"$MESH"'";
   in mesh.lib.x86_64-linux.buildWasm {
     pname = "store-sm"; src = ./.; crate = "store-sm"; wasmName = "store_sm.wasm";
   }' -o result
+# then compose: mesh.lib.<system>.mkComposite { name = "store"; sm = "${store-sm}/store_sm.wasm"; }
 
-# logic proof (host): a rust toolchain + a cc-wrapper on PATH, then
-cargo test --manifest-path store-protocol/Cargo.toml
-cargo test --manifest-path store-sm/Cargo.toml
+# logic proof (host): from the repo root, `cargo test -p store-protocol` (workspace); store-sm is
+# self-rooted -> `cargo test --manifest-path store-index/store-sm/Cargo.toml`.
 ```
 
 > Env note: this container aggressively GCs the nix store, so a fresh build may need

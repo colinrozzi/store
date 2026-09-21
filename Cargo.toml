@@ -1,0 +1,22 @@
+# The store — the NATIVE cargo workspace: the tools that run ON a box + the shared schema.
+#   store-cli        the `store` command (publish/materialize/resolve/remove/gc/...)
+#   store-publishd   the token-authed HTTPS deploy endpoint
+#   store-protocol   the shared typed index schema (also used by the wasm SM)
+# One Cargo.lock for all three. `cargo build` / `cargo test` here builds the tools.
+#
+# The WASM ACTORS are deliberately NOT members — they build for wasm32 via nix (the mesh's `buildWasm`
+# vendors each crate's OWN Cargo.lock, incompatible with a shared workspace lock), so they stay
+# self-contained (own Cargo.lock, own [profile]) under their own dirs:
+#   store-index/store-sm   the mutable name->hash index state-machine  (mkComposite -> mesh_store.wasm)
+#   content-node           the content holder / fetch-by-hash transport (-> content_node.wasm)
+[workspace]
+resolver = "2"
+members = [
+    "store-index/store-protocol",
+    "store-cli",
+    "store-publishd",
+]
+
+[profile.release]
+opt-level = "s"
+lto = true

@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 description = "The store's mutable name->hash index as an RSM state-machine (LAYER0-DESIGN Interface 1): CRDT LWW register per name, node-pubkey allow-list write-auth seeded by a Genesis event. Composed into the mesh node via mesh.lib.mkComposite."
 
+# Self-contained (NOT a member of the root native workspace): builds for wasm32 via the mesh's
+# buildWasm, which vendors this crate's OWN Cargo.lock. See ../../Cargo.toml.
 [workspace]
 
 [lib]

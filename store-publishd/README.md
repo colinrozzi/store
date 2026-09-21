@@ -72,6 +72,7 @@ real index (CLI `resolve` confirms) + content on the holder (materialize round-t
 correct hash; bad token → 401; /health → 200. Static-musl binary re-verified (`/health` 200).
 
 ## Build
-`store-publishd` here is the static-musl binary (statically linked, ~2.2 MB). Rebuild: `nix build .#default`
-(nixos-25.05 pkgsStatic; `perl` for ring; `time` pinned 0.3.36 for rustc 1.86). Reuses `store-protocol`
-+ the CLI's inlined mesh/content client (copied; the wire protocol is fixed).
+Static-musl (statically linked, ~2.2 MB). `store-publishd` is a member of the repo-root cargo workspace;
+`nix build .#default` at the repo root builds it + `store` together (nixos-25.05 pkgsStatic; `perl` for
+ring). Depends on the shared `store-protocol` workspace crate; the mesh/content client is inlined here
+(the wire protocol is fixed).

@@ -1,8 +1,0 @@
-[package]
-name = "store-protocol"
-version = "0.1.0"
-edition = "2021"
-description = "Store index schema: the typed payload (Genesis/Put/Remove) + typed LWW-register state (name -> {hash|tombstone, ts, author}). Shared by store-sm and the (future) store driver."
-
-[dependencies]
-packr-guest = { version = "0.24", features = ["derive"] }
