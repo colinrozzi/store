@@ -35,8 +35,14 @@ store-publishd --listen 0.0.0.0:8443 \
 #     NOT on the acceptor's box (then that box needs its own materialize trigger).
 ```
 
-## Endpoint (all but /health require `Authorization: Bearer <token>`)
+## Endpoint (Bearer-authed unless noted)
 ```
+GET  /content/<hash>  (or /by-hash/<hash>)  -> 200 blob (NO auth) | 404    [boot-from-store]
+    PUBLIC, but GATED: streams the blob from the co-located holder ONLY if a LIVE index label under
+    `--public-prefix` (default `wasm/`) points at that hash. So any box can boot-from-store over the
+    public :18443 by content-hash (no GitHub, no store node) -- while SECRETS in the same CAS (labels
+    outside the prefix) are NEVER publicly served, even if their hash is known. `--public-prefix ""`
+    serves any hash (use ONLY if the store holds no secrets).
 POST /publish?name=<label>     body = raw wasm bytes
     -> 200 {"name":"<label>","hash":"<64hex>"}   (compare hash to your local sha256 -> fail-loud on mismatch)
     -> 400 empty/short body (Content-Length not satisfied)   413 over --max-body-mb

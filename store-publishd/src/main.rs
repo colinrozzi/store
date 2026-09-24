@@ -12,9 +12,13 @@
 //!   store-publishd --listen 0.0.0.0:8443 --cert C --key K --token-file T \
 //!       --index 127.0.0.1:9700 --holder 127.0.0.1:9710 [--max-body-mb 64]
 //!
-//! Routes (all but /health require `Authorization: Bearer <token>`):
+//! Routes (Bearer-authed unless noted):
 //!   POST /publish?name=<label>   body = raw wasm  -> 200 {"hash":"<64hex>","name":"<label>"}
+//!   DELETE /publish?name=<label>                  -> 200 {"removed":true}
 //!   GET  /resolve?name=<label>                    -> 200 <64hex> | 404
+//!   GET  /content/<hash> (or /by-hash/<hash>)     -> 200 blob (NO auth; boot-from-store) | 404
+//!        PUBLIC but GATED: serves only blobs a live `--public-prefix` (default `wasm/`) label points at,
+//!        so secrets in the same CAS are never publicly served. Any box can boot-from-store by hash.
 //!   GET  /health                                  -> 200 ok   (no auth)
 
 use std::sync::Arc;
@@ -119,6 +123,8 @@ impl Index {
 }
 
 // ===================== content wire (inlined, from store-cli) =====================
+const OP_REQ_GET: u8 = 1;
+const OP_BLOB: u8 = 2;
 const OP_PUSH: u8 = 4;
 fn content_frame(op: u8, hash: &[u8], payload: &[u8]) -> Vec<u8> {
     let mut f = vec![op];
@@ -135,6 +141,46 @@ fn content_push(addr: &str, hash: &[u8], bytes: &[u8]) -> Result<(), String> {
     let mut hdr = [0u8; 37];
     let _ = s.read_exact(&mut hdr);
     Ok(())
+}
+fn read_content_frame(s: &mut TcpStream) -> io::Result<(u8, [u8; 32], Vec<u8>)> {
+    let mut hdr = [0u8; 37];
+    s.read_exact(&mut hdr)?;
+    let mut hash = [0u8; 32];
+    hash.copy_from_slice(&hdr[1..33]);
+    let len = u32::from_be_bytes([hdr[33], hdr[34], hdr[35], hdr[36]]) as usize;
+    let mut payload = vec![0u8; len];
+    s.read_exact(&mut payload)?;
+    Ok((hdr[0], hash, payload))
+}
+/// Fetch a blob by hash from the FIRST holder that serves it, SHA-256-verified on receipt.
+fn content_fetch_any(holders: &[String], hash: &[u8; 32]) -> Result<Vec<u8>, String> {
+    for addr in holders {
+        if let Ok(b) = content_fetch(addr, hash) {
+            return Ok(b);
+        }
+    }
+    Err(format!("no holder served {}", hex(hash)))
+}
+fn content_fetch(addr: &str, hash: &[u8; 32]) -> Result<Vec<u8>, String> {
+    let mut s = TcpStream::connect(addr).map_err(|e| format!("connect holder {addr}: {e}"))?;
+    s.set_read_timeout(Some(Duration::from_secs(8))).ok();
+    s.write_all(&content_frame(OP_REQ_GET, hash, &[])).map_err(|e| format!("req_get: {e}"))?;
+    let (op, rh, payload) = read_content_frame(&mut s).map_err(|e| format!("read blob: {e}"))?;
+    if op != OP_BLOB || &rh != hash || &sha256(&payload) != hash {
+        return Err("holder miss/mismatch".into());
+    }
+    Ok(payload)
+}
+fn unhex(s: &str) -> Option<[u8; 32]> {
+    let s = s.trim();
+    if s.len() != 64 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for i in 0..32 {
+        out[i] = u8::from_str_radix(s.get(i * 2..i * 2 + 2)?, 16).ok()?;
+    }
+    Some(out)
 }
 
 fn sha256(b: &[u8]) -> [u8; 32] {
@@ -171,6 +217,12 @@ struct Cfg {
     /// instant POST /publish returns -- else a supervisor restart re-reads the OLD symlink (stale deploy).
     /// Path convention MATCHES `store materialize` exactly (packages/ + by-name/<name>.wasm, `/`->`_`).
     materialize_root: Option<String>,
+    /// Public content-GET SAFETY GATE: `GET /content/<hash>` serves a blob ONLY if a LIVE index entry whose
+    /// name starts with this prefix points at that hash. So only PUBLISHED artifacts under e.g. `wasm/` are
+    /// publicly fetchable; SECRETS (labels outside the prefix) are never served by the public endpoint, even
+    /// though their blobs live in the same CAS. Empty string = serve any hash (ONLY if the store holds no
+    /// secrets). Default `wasm/`.
+    public_prefix: String,
 }
 
 /// PUSH content to all holders (RF; every push must succeed), submit Put(name->hash), and -- if a
@@ -225,6 +277,26 @@ fn do_resolve(cfg: &Cfg, name: &str) -> Result<Option<String>, String> {
     let bytes = idx.current_state().map_err(|e| format!("current-state: {e}"))?;
     let st = decode_state(&bytes).ok_or("decode index state")?;
     Ok(st.entries.iter().find(|e| e.name == name && !e.tombstone).map(|e| e.hash.clone()))
+}
+
+/// PUBLIC boot-from-store: fetch a blob by hash from a holder, BUT only if a live index entry under the
+/// public prefix (e.g. `wasm/`) references it -- so secrets in the same CAS are never publicly served.
+/// Returns None (=> 404) if the hash isn't a live public artifact.
+fn do_content_get(cfg: &Cfg, hash_hex: &str) -> Result<Option<Vec<u8>>, String> {
+    let hb = match unhex(hash_hex) {
+        Some(h) => h,
+        None => return Ok(None),
+    };
+    let mut idx = Index::connect(&cfg.index).map_err(|e| format!("index connect: {e}"))?;
+    let bytes = idx.current_state().map_err(|e| format!("current-state: {e}"))?;
+    let st = decode_state(&bytes).ok_or("decode index state")?;
+    let is_public = st.entries.iter().any(|e| {
+        !e.tombstone && e.hash == hash_hex && (cfg.public_prefix.is_empty() || e.name.starts_with(&cfg.public_prefix))
+    });
+    if !is_public {
+        return Ok(None); // not a live public artifact -> not served (protects secrets)
+    }
+    Ok(Some(content_fetch_any(&cfg.holders, &hb)?))
 }
 
 // ===================== HTTP (minimal, drain-correct) =====================
@@ -307,7 +379,36 @@ async fn handle<S: AsyncReadExt + AsyncWriteExt + Unpin>(mut s: S, cfg: Arc<Cfg>
         return;
     }
 
-    // auth (all routes except /health)
+    // PUBLIC boot-from-store: GET /content/<hash> or /by-hash/<hash> -- NO auth (like GitHub-raw), but the
+    // public-prefix gate in do_content_get ensures only published artifacts (not secrets) are served.
+    let content_hash = path
+        .strip_prefix("/content/")
+        .or_else(|| path.strip_prefix("/by-hash/"))
+        .map(|h| h.split(['?', '/']).next().unwrap_or("").to_string());
+    if let Some(h) = content_hash {
+        if method != "GET" {
+            respond(&mut s, 405, "Method Not Allowed", "content-get is GET\n").await;
+            return;
+        }
+        let cfg2 = cfg.clone();
+        match tokio::task::spawn_blocking(move || do_content_get(&cfg2, &h)).await {
+            Ok(Ok(Some(blob))) => {
+                let msg = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    blob.len()
+                );
+                let _ = s.write_all(msg.as_bytes()).await;
+                let _ = s.write_all(&blob).await;
+                let _ = s.flush().await;
+            }
+            Ok(Ok(None)) => respond(&mut s, 404, "Not Found", "no such public artifact\n").await,
+            Ok(Err(e)) => respond(&mut s, 502, "Bad Gateway", &format!("{e}\n")).await,
+            Err(_) => respond(&mut s, 500, "Internal Server Error", "join\n").await,
+        }
+        return;
+    }
+
+    // auth (all routes except /health + the public content-get)
     let token_ok = auth.strip_prefix("Bearer ").map(|t| ct_eq(t.as_bytes(), &cfg.token)).unwrap_or(false);
     if !token_ok {
         respond(&mut s, 401, "Unauthorized", "unauthorized\n").await;
@@ -423,6 +524,7 @@ fn main() {
     }
     let holders: Vec<String> = holder.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
     let materialize_root = flag(&a, "--materialize-root");
+    let public_prefix = flag(&a, "--public-prefix").unwrap_or_else(|| "wasm/".to_string());
 
     let certs = load_certs(&cert);
     let pkey = load_key(&key);
@@ -431,17 +533,18 @@ fn main() {
         .with_single_cert(certs, pkey)
         .unwrap_or_else(|e| die(&format!("tls cert: {e}")));
     let acceptor = TlsAcceptor::from(Arc::new(tls));
-    let cfg = Arc::new(Cfg { index, holders, token, max_body, materialize_root });
+    let cfg = Arc::new(Cfg { index, holders, token, max_body, materialize_root, public_prefix });
 
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap_or_else(|e| die(&format!("rt: {e}")));
     rt.block_on(async move {
         let l = TcpListener::bind(&listen).await.unwrap_or_else(|e| die(&format!("bind {listen}: {e}")));
         eprintln!(
-            "[publishd] https {listen} -> index {} holders {:?} (max-body {} MiB) materialize={}",
+            "[publishd] https {listen} -> index {} holders {:?} (max-body {} MiB) materialize={} public-content=/content/<hash> gate=[{}]",
             cfg.index,
             cfg.holders,
             cfg.max_body / 1024 / 1024,
-            cfg.materialize_root.as_deref().unwrap_or("<none: co-located restarts read STALE symlinks>")
+            cfg.materialize_root.as_deref().unwrap_or("<none: co-located restarts read STALE symlinks>"),
+            if cfg.public_prefix.is_empty() { "ANY (no secrets!)".to_string() } else { format!("{}*", cfg.public_prefix) }
         );
         loop {
             let (sock, _peer) = match l.accept().await {
