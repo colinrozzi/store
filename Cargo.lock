@@ -503,6 +503,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "store-wiki"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "rustls",
+ "rustls-pemfile",
+ "sha2",
+ "store-protocol",
+ "tokio",
+ "tokio-rustls",
+]
+
+[[package]]
 name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

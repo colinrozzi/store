@@ -15,6 +15,7 @@ members = [
     "store-index/store-protocol",
     "store-cli",
     "store-publishd",
+    "store-wiki",
 ]
 
 [profile.release]
